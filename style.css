@@ -20,8 +20,7 @@
 *{box-sizing:border-box}
 html{overflow-x:clip;touch-action:manipulation}
 [hidden]{display:none!important}
-body{margin:0;background:var(--surface);color:var(--text);padding:var(--safe-top) max(env(safe-area-inset-right),var(--tg-right,0px)) calc(88px + var(--safe-bottom)) max(env(safe-area-inset-left),var(--tg-left,0px))}
-body:has(#home:not([hidden])){background-image:radial-gradient(ellipse min(94vw,850px) 560px at 50% 350px,var(--home-glow),transparent)}
+body{margin:0;background:var(--surface);color:var(--text);isolation:isolate;padding:var(--safe-top) max(env(safe-area-inset-right),var(--tg-right,0px)) calc(88px + var(--safe-bottom)) max(env(safe-area-inset-left),var(--tg-left,0px))}
 h1,h2,p{margin:0} a{color:inherit} button,input,select{font:inherit;color:inherit}
 :is(button,a,input,select):focus-visible{outline:3px solid var(--outline);outline-offset:3px}
 button,.tonal,.filled,.text-action{display:inline-flex;align-items:center;justify-content:center;text-align:center;min-height:48px;padding:8px 16px;border:0;border-radius:var(--r-pill);text-decoration:none;background:var(--high);cursor:pointer;transition:transform .24s var(--spring),border-radius .24s var(--spring)}
@@ -45,6 +44,7 @@ button:disabled{opacity:.45;cursor:default}
 .navigation a[aria-current]{color:var(--text)}
 main{width:min(100%,1280px);margin:auto;padding:12px var(--space) 0;container-type:inline-size}
 .hero{display:grid;align-items:center;gap:18px;background:var(--container);border-radius:var(--r-large) var(--r-large) var(--r-small) var(--r-large);padding:clamp(18px,4vw,52px);position:relative}
+.home-page .hero::before{content:"";position:absolute;inset:0;z-index:-2;border-radius:inherit;box-shadow:0 0 clamp(24px,5vw,64px) 0 var(--home-glow);pointer-events:none}
 .hero-copy{min-width:0}
 .show-wordmark{width:min(100%,540px);margin:12px 0 6px}
 .show-wordmark img{display:block;width:100%;height:auto}
@@ -275,7 +275,6 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 
 :root[data-new-year=true]{--snow-color:#f2faff}
 :root[data-theme=light][data-new-year=true]{--snow-color:#628494}
-:root[data-new-year=true] body{isolation:isolate}
 .snow-field{position:fixed;inset:0;overflow:hidden;z-index:-1;pointer-events:none}
 .snowflake{
  position:absolute;top:var(--snow-y);left:var(--snow-x);width:var(--snow-size);height:var(--snow-size);
