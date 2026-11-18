@@ -18,6 +18,7 @@ const preferences = {
   theme:['auto','dark','light'].includes(saved.theme) ? saved.theme : 'auto',
   newYear: saved.newYear === true,
   spoilers: saved.spoilers === true,
+  hideImportance: saved.hideImportance === true,
   sources:saved.sources || {},
   template:saved.template || null,
   alloha:typeof saved.alloha === 'string' ? saved.alloha : '',
@@ -161,6 +162,8 @@ function renderCatalog() {
   }));
   $('seasons').scrollLeft = oldScroll;
   renderSeasonRatings(catalogSeason);
+  $('toggle-important').setAttribute('aria-pressed',preferences.hideImportance);
+  $('toggle-important').textContent = preferences.hideImportance ? 'Показать пометки' : 'Скрыть пометки';
   const normalizeSearch = value => String(value).toLocaleLowerCase('ru-RU').replaceAll('ё','е');
   const search = normalizeSearch($('search').value.trim());
   const importantOnly = $('important-filter').checked;
@@ -187,19 +190,13 @@ function episodeCard(item) {
   link.href = episodeHash(item);
   link.setAttribute('aria-label','Открыть сезон ' + item.season + ', серия ' + item.episode);
   if (key(item) === key(current)) link.setAttribute('aria-current','true');
-  if (preferences.spoilers || classification(item).importance !== 'key') {
-    const image = make('img','episode-image');
-    image.src = item.image;
-    image.alt = '';
-    image.loading = 'lazy';
-    image.decoding = 'async';
-    image.onerror = () => image.replaceWith(make('div','episode-placeholder',String(item.episode).padStart(2,'0')));
-    link.append(image);
-  } else {
-    const placeholder = make('div','episode-placeholder',String(item.episode).padStart(2,'0'));
-    placeholder.setAttribute('aria-hidden','true');
-    link.append(placeholder);
-  }
+  const image = make('img','episode-image');
+  image.src = item.image;
+  image.alt = '';
+  image.loading = 'lazy';
+  image.decoding = 'async';
+  image.onerror = () => image.replaceWith(make('div','episode-placeholder',String(item.episode).padStart(2,'0')));
+  link.append(image);
   const copy = make('div','episode-copy');
   const record = historyFor(item);
   copy.append(make('strong',null,'С' + item.season + ' · Серия ' + item.episode));
@@ -220,12 +217,17 @@ function episodeCard(item) {
   const importance = classification(item).importance;
   const button = make('button','importance-button ' + importance,['key','important'].includes(importance) ? importanceLabels[importance] : 'О серии');
   button.onclick = () => showImportance(item);
-  meta.append(button);
+  if (!preferences.hideImportance) meta.append(button);
   const rating = ratingBadge('IMDb',externalRatingData.episodes[key(item)]);
   if (rating) meta.append(rating);
   card.append(link,meta);
   return card;
 }
+$('toggle-important').onclick = () => {
+  preferences.hideImportance = !preferences.hideImportance;
+  persist();
+  renderCatalog();
+};
 for (const id of ['search','important-filter','unwatched-filter']) $(id).addEventListener('input',renderCatalog);
 function showImportance(item) {
   editEpisode = item;
@@ -293,6 +295,35 @@ $('mark-watched').onclick = () => {
   saveViewing({...historyFor(current),season:current.season,episode:current.episode,completed:!historyFor(current).completed});
   updateWatched();
 };
+const episodeRecaps = {
+  '4:11': {
+    source:'https://en.wikipedia.org/wiki/The_Mentalist_season_4#Episodes',
+    paragraphs:[
+      'Адвокат Олтон Крик обращается к команде после угроз. Когда детективы приходят на встречу, его лодка взрывается. Под подозрение попадают деловой партнёр Крика и люди, связанные с его подпольными покерными играми. Чо обращается за помощью к Саммер, которая знала Крика.',
+      'Параллельно агент Дарси расследует убийство Панзера. Джейн получает запись слежки за ней и понимает, что Красный Джон посылает ему предупреждение. Дарси отказывается отступить. Чтобы увести её со следа, Джейн подбрасывает улики и подделывает признание Тома Майера, отца первой жертвы Панзера, который к этому моменту уже погиб.',
+      'Дело Крика приводит к его коллеге Колетт. Финансовые улики и её реакция на разговор о Саммер выдают мотив. Колетт убила Крика из ревности, и её арестовывают.'
+    ]
+  }
+};
+function renderEpisodePlot(item) {
+  const plot = $('episode-plot');
+  if (plot.dataset.episode !== key(item)) {
+    plot.dataset.episode = key(item);
+    plot.open = preferences.spoilers;
+  }
+  const recap = episodeRecaps[key(item)];
+  const rating = externalRatingData.episodes[key(item)];
+  const content = $('plot-content');
+  content.replaceChildren(...(recap ? recap.paragraphs.map(text => make('p',null,text)) :
+    [make('p','muted','Подробного пересказа на Konfoly пока нет.')]));
+  if (recap || rating) {
+    const link = make('a',null,recap ? 'Источник пересказа ↗' : 'Сюжет эпизода на IMDb ↗');
+    link.href = recap?.source || 'https://www.imdb.com/title/' + rating.id + '/plotsummary/';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    content.append(link);
+  }
+}
 function renderWatch() {
   const index = episodeCatalog.indexOf(current);
   $('episode-number').textContent = 'СЕЗОН ' + current.season + ' · СЕРИЯ ' + current.episode;
@@ -303,6 +334,7 @@ function renderWatch() {
   original.textContent = original.hidden ? '' : current.title;
   $('episode-description').textContent = current.description || '';
   renderEpisodeRatings(current);
+  renderEpisodePlot(current);
   $('share-link').href = episodeHash(current);
   $('share-link').onclick = async event => {
     if (!navigator.clipboard?.writeText) return;
@@ -566,12 +598,12 @@ function applyNewYear() {
     field.replaceChildren();
     return;
   }
-  field.replaceChildren(...Array.from({length:100},() => {
+  field.replaceChildren(...Array.from({length:160},() => {
     const flake = make('span','snowflake');
     const duration = 16 + Math.random() * 20;
     flake.style.setProperty('--snow-x',(Math.random() * 100) + '%');
     flake.style.setProperty('--snow-y',(Math.random() * 100) + '%');
-    flake.style.setProperty('--snow-size',(1.4 + Math.random() * 1.6) + 'px');
+    flake.style.setProperty('--snow-size',(2.3 + Math.random() * 2.4) + 'px');
     flake.style.setProperty('--snow-opacity',.19 + Math.random() * .25);
     flake.style.setProperty('--snow-drift',(Math.random() * 44 - 22) + 'px');
     flake.style.setProperty('--snow-duration',duration + 's');
@@ -586,7 +618,7 @@ $('new-year').onchange = event => {
   persist();
 };
 $('spoilers').checked = preferences.spoilers;
-$('spoilers').onchange = event => {preferences.spoilers=event.target.checked;persist()};
+$('spoilers').onchange = event => {preferences.spoilers=event.target.checked;$('episode-plot').open=preferences.spoilers;persist()};
 matchMedia('(prefers-color-scheme: light)').addEventListener('change',applyTheme);
 for (const sheet of document.querySelectorAll('dialog')) sheet.addEventListener('close',() => platform.showBack(page !== 'home'));
 platform.configure(() => {

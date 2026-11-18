@@ -61,7 +61,7 @@ function openPersonalRating(target,opener) {
   const slider = $('rating-slider');
   function preview() {
     const score = Number(slider.value);
-    slider.style.setProperty('--rating-progress',((score - 1) / 9 * 100) + '%');
+    $('rating-scale').style.setProperty('--rating-progress',((score - 1) / 9 * 100) + '%');
     slider.setAttribute('aria-valuetext',score + ' из 10');
     $('rating-current').textContent = score + ' из 10';
   }
