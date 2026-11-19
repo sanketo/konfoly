@@ -37,21 +37,26 @@ const seriesMetadata = (() => {
       return true;
     } catch { return false; }
   }
-  async function tmdbImages(show,signal,token) {
-    const request = async path => {
-      const response = await fetch('https://api.themoviedb.org/3/' + path,{
-        signal,credentials:'omit',redirect:'error',headers:{Authorization:'Bearer ' + token}
-      });
-      if (!response.ok) throw Error('TMDB не загрузил логотипы.');
-      return response.json();
-    };
-    let id = show.tmdbId;
+  async function tmdbRequest(path,signal,token) {
+    const response = await fetch('https://api.themoviedb.org/3/' + path,{
+      signal,credentials:'omit',redirect:'error',headers:{Authorization:'Bearer ' + token}
+    });
+    if (!response.ok) throw Error('TMDB временно недоступен.');
+    return response.json();
+  }
+  async function tmdbSeriesId(show,signal,token) {
+    let id = show.tmdbId || read(show).tmdbId;
     if (!id && /^tt\d{5,12}$/.test(show.imdb?.id || '')) {
-      const data = await request('find/' + show.imdb.id + '?external_source=imdb_id');
+      const data = await tmdbRequest('find/' + show.imdb.id + '?external_source=imdb_id',signal,token);
       if (data.tv_results?.length === 1) id = data.tv_results[0].id;
     }
-    if (!Number.isInteger(id)) return [];
-    const data = await request('tv/' + id + '/images?include_image_language=ru,en,null');
+    if (Number.isInteger(id)) { save(show,{tmdbId:id}); return id; }
+    return null;
+  }
+  async function tmdbImages(show,signal,token) {
+    const id = await tmdbSeriesId(show,signal,token);
+    if (!id) return [];
+    const data = await tmdbRequest('tv/' + id + '/images?include_image_language=ru,en,null',signal,token);
     const rank = {ru:0,en:1,null:2};
     return (Array.isArray(data.logos) ? data.logos : [])
       .filter(logo => /^\/[a-zA-Z0-9]+\.(png|svg)$/i.test(logo.file_path))
@@ -277,17 +282,20 @@ const seriesMetadata = (() => {
         onChange();
       })());
     }
-    if (!fresh(data.mazeCheckedAt) && show.mazeId && show.episodes && show.id !== 'interns') {
+    if ((!fresh(data.mazeCheckedAt) || !data.mazeIds) && show.mazeId && show.episodes && show.id !== 'interns') {
       jobs.push((async () => {
         const rows = await json('https://api.tvmaze.com/shows/' + show.mazeId + '/episodes',{signal});
         if (signal.aborted) return;
         const summaries = {};
+        const mazeIds = {};
         for (const row of rows) {
-          if (Number.isInteger(row.season) && Number.isInteger(row.number) && row.summary) {
-            summaries[row.season + ':' + row.number] = plain(row.summary);
+          if (Number.isInteger(row.season) && Number.isInteger(row.number)) {
+            const key = row.season + ':' + row.number;
+            if (row.summary) summaries[key] = plain(row.summary);
+            if (Number.isInteger(row.id)) mazeIds[key] = row.id;
           }
         }
-        save(show,{maze:summaries,mazeCheckedAt:Date.now()});
+        save(show,{maze:summaries,mazeIds,mazeCheckedAt:Date.now()});
         onChange();
       })());
     }
@@ -349,6 +357,71 @@ const seriesMetadata = (() => {
     if (failure && !signal.aborted) throw failure.reason;
   }
 
+  const episodeJobs = new WeakMap();
+  async function loadEpisodeTitles(show,items,signal,onChange) {
+    if (!items?.length || signal.aborted || show.language === 'Russian') return;
+    const data = read(show);
+    const jobs = episodeJobs.get(signal) || new Set();
+    episodeJobs.set(signal,jobs);
+    const pending = items.filter(item => !episode(show,item).translated);
+    const wikiPending = pending.map(item => [itemKey(item),item.mazeId || data.mazeIds?.[itemKey(item)]])
+      .filter(([key,id]) => Number.isInteger(id) && !fresh(data.wikiEpisodeChecked?.[key]) && !jobs.has('wiki:' + key));
+    for (const [key] of wikiPending) jobs.add('wiki:' + key);
+    const wiki = async () => {
+      for (let start=0; start<wikiPending.length && !signal.aborted; start+=40) {
+        const batch = wikiPending.slice(start,start+40);
+        const ids = [...new Set(batch.map(([,id]) => id))].map(id => '"' + id + '"').join(' ');
+        const rows = await wikidataRows('SELECT ?id ?name WHERE { VALUES ?id { ' + ids +
+          ' } ?episode wdt:P11294 ?id ; rdfs:label ?name . FILTER(LANG(?name) = "ru") }',signal);
+        if (signal.aborted) return;
+        const names = new Map();
+        for (const row of rows) {
+          const id = Number(row.id?.value);
+          const title = text(row.name?.value,300);
+          if (!/\p{Script=Cyrillic}/u.test(title)) continue;
+          if (!names.has(id)) names.set(id,new Set());
+          names.get(id).add(title);
+        }
+        const titles = {...data.wikiEpisodeTitles};
+        const checked = {...data.wikiEpisodeChecked};
+        let changed = false;
+        for (const [key,id] of batch) {
+          checked[key] = Date.now();
+          if (names.get(id)?.size === 1) {
+            titles[key] = [...names.get(id)][0];
+            changed = true;
+          }
+        }
+        save(show,{wikiEpisodeTitles:titles,wikiEpisodeChecked:checked});
+        if (changed) onChange();
+      }
+    };
+    const tmdb = async () => {
+      const token = tmdbToken();
+      if (!token) return;
+      const seasons = [...new Set(pending.map(item => item.season))]
+        .filter(season => !fresh(data.tmdbEpisodeChecked?.[season]) && !jobs.has('tmdb:' + season));
+      if (!seasons.length || seriesIdentity(show)?.seasonLengths) return;
+      for (const season of seasons) jobs.add('tmdb:' + season);
+      const id = await tmdbSeriesId(show,signal,token);
+      if (!id) return;
+      for (const season of seasons) {
+        if (signal.aborted) return;
+        const response = await tmdbRequest('tv/' + id + '/season/' + season + '?language=ru-RU',signal,token);
+        if (signal.aborted) return;
+        const titles = {...data.tmdbEpisodeTitles};
+        for (const row of response.episodes || []) {
+          const item = (show.episodes || items).find(item => item.season === season && item.episode === row.episode_number);
+          const title = text(row.name,300);
+          if (item && /\p{Script=Cyrillic}/u.test(title) &&
+              (!item.airdate || !row.air_date || item.airdate === row.air_date)) titles[itemKey(item)] = title;
+        }
+        save(show,{tmdbEpisodeTitles:titles,tmdbEpisodeChecked:{...data.tmdbEpisodeChecked,[season]:Date.now()}});
+        onChange();
+      }
+    };
+    await Promise.allSettled([wiki(),tmdb()]);
+  }
   const normalize = value => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu,'').replace(/^bojackhorseman/,'');
   function episode(show,item) {
     const data = read(show);
@@ -361,11 +434,13 @@ const seriesMetadata = (() => {
     const match = kp && (!kp.original || !item.title || /^Серия \d+$/.test(item.title) || normalize(kp.original) === normalize(item.title)) ? kp : null;
     const official = typeof seriesEditorial === 'undefined' ? null : seriesEditorial[show.mazeId]?.episodes?.[id];
     const localTitle = localizedSeriesTitle(show,item);
+    const translatedTitle = match?.title || official?.title || (localTitle !== item.title ? localTitle : '') ||
+      data.tmdbEpisodeTitles?.[id] || data.wikiEpisodeTitles?.[id] || data.translated?.[id]?.title;
     return {
-      title:match?.title || official?.title || (localTitle !== item.title ? localTitle : '') || data.translated?.[id]?.title || item.title,
+      title:translatedTitle || item.title,
       description:match?.description || official?.description || data.translated?.[id]?.description || data.maze?.[id] || item.synopsis || '',
       source:match?.description ? 'Кинопоиск' : official?.description ? official.source : data.translated?.[id]?.description ? 'Машинный перевод · TVmaze' : 'TVmaze',
-      translated:!!(match?.title || official?.title || localTitle !== item.title || data.translated?.[id]?.title)
+      translated:!!translatedTitle || /\p{Script=Cyrillic}/u.test(item.title || '')
     };
   }
 
@@ -397,39 +472,48 @@ const seriesMetadata = (() => {
   function canTranslate(show) {
     return typeof globalThis.Translator?.create === 'function' && show.language !== 'Russian';
   }
-  async function translateIfReady(show,items,signal,onChange) {
+  async function translateIfReady(show,items,signal,onChange,titlesOnly=false) {
     if (!canTranslate(show) || typeof globalThis.Translator.availability !== 'function') return;
     const options = {sourceLanguage:languages[show.language] || 'en',targetLanguage:'ru'};
     try {
       if (await globalThis.Translator.availability(options) !== 'available' || signal.aborted) return;
-      if (items?.length) await translate(show,items,signal,onChange);
+      if (items?.length) await translate(show,items,signal,onChange,titlesOnly);
       else await translateShow(show,signal,onChange);
     } catch {}
   }
-  async function translate(show,items,signal,onChange) {
+  async function translate(show,items,signal,onChange,titlesOnly=false) {
     const sourceLanguage = languages[show.language] || 'en';
     const translator = await globalThis.Translator.create({sourceLanguage,targetLanguage:'ru',signal});
     const data = read(show);
-    const translated = {...data.translated};
+    let changed = false;
     try {
       for (const item of items) {
         if (signal.aborted) return;
         const id = itemKey(item);
         const info = episode(show,item);
-        const next = {...translated[id]};
-        if (!info.translated && item.title) next.title = text(await translator.translate(item.title,{signal}),300);
+        const next = {...data.translated?.[id]};
+        if (!info.translated && item.title) {
+          next.title = text(await translator.translate(item.title,{signal}),300);
+          changed = true;
+        }
         const summary = data.maze?.[id] || item.synopsis;
-        if (summary && info.source === 'TVmaze' && !/\p{Script=Cyrillic}/u.test(summary)) next.description = text(await translator.translate(summary,{signal}));
-        if (next.title || next.description) translated[id] = next;
+        if (!titlesOnly && summary && info.source === 'TVmaze' && !/\p{Script=Cyrillic}/u.test(summary)) {
+          next.description = text(await translator.translate(summary,{signal}));
+          changed = true;
+        }
+        if (next.title || next.description) {
+          data.translated ||= {};
+          data.translated[id] = next;
+        }
       }
-      if (!signal.aborted) {
-        save(show,{translated});
+      if (!signal.aborted && changed) {
+        save(show,{translated:data.translated});
         onChange();
       }
     } finally { translator.destroy(); }
   }
 
-  return {searchTitles,russianSearch,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {loadEpisodeTitles,searchTitles,russianSearch,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();
 
 export {seriesMetadata};

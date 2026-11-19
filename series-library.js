@@ -221,7 +221,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   async function fetchEpisodes(mazeId,signal) {
     const episodes = (await tvmaze('shows/' + mazeId + '/episodes',signal))
       .filter(item => Number.isInteger(item.season) && Number.isInteger(item.number))
-      .map(item => ({season:item.season,episode:item.number,title:item.name,image:mazeImage(item.image),runtime:item.runtime,synopsis:seriesMetadata.plain(item.summary)}))
+      .map(item => ({season:item.season,episode:item.number,title:item.name,mazeId:item.id,airdate:item.airdate,image:mazeImage(item.image),runtime:item.runtime,synopsis:seriesMetadata.plain(item.summary)}))
       .sort((a,b) => a.season - b.season || a.episode - b.episode);
     if (!episodes.length) throw new Error('Нет пронумерованных серий');
     return episodes;
@@ -265,42 +265,44 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     }
     const form = $('library-add-form');
     const input = form.querySelector('input');
-    const submit = form.querySelector('button');
     const status = $('library-add-status');
     const results = $('library-add-results');
     status.textContent = '';
     results.replaceChildren();
-    submit.disabled = false;
     if (focusSearch) input.focus({preventScroll:true});
     const session = new AbortController();
-    let operation;
-    function requestSignal() {
+    let operation, debounce;
+    async function run(action,onFailure,timeout=8000) {
       operation?.abort();
-      operation = new AbortController();
-      return operation.signal;
+      const controller = new AbortController();
+      operation = controller;
+      const {signal} = controller;
+      let timer;
+      const deadline = new Promise((_resolve,reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(Error('timeout'));
+        },timeout);
+      });
+      try { await Promise.race([action(signal),deadline]); }
+      catch { if (!session.signal.aborted && operation === controller) onFailure(); }
+      finally { clearTimeout(timer); }
     }
-    async function run(action,error) {
-      const signal = requestSignal();
-      const timer = setTimeout(() => operation?.signal === signal && operation.abort('timeout'),10000);
-      submit.disabled = true;
-      try { await action(signal); }
-      catch { if (!session.signal.aborted) status.textContent = error; }
-      finally {
-        clearTimeout(timer);
-        if (operation?.signal === signal) submit.disabled = false;
-      }
-    }
-    form.onsubmit = event => {
-      event.preventDefault();
+    function search() {
+      clearTimeout(debounce);
+      operation?.abort();
+      operation = null;
       const query = input.value.trim();
-      if (!query) return;
       results.replaceChildren();
-      const normalized = query.toLocaleLowerCase('ru');
+      status.textContent = '';
+      if (query.length < 2) return;
+      const normalizedTitle = title => title.toLocaleLowerCase('ru').replaceAll('ё','е');
+      const normalized = normalizedTitle(query);
       const local = libraryShows().filter(show =>
-        [seriesDisplayTitle(show),show.title,show.original].some(title => title?.toLocaleLowerCase('ru').includes(normalized)));
+        [seriesDisplayTitle(show),show.title,show.original].some(title => title && normalizedTitle(title).includes(normalized)));
       const cards = new Map(local.map(show => [show.id,searchCard(show)]));
       results.append(...cards.values());
-      status.textContent = 'Ищем сериалы…';
+      status.textContent = local.length ? 'Результаты поиска' : 'Ищем сериалы…';
       void run(async signal => {
         const seen = new Set(local.map(show => show.id));
         const previews = [...local];
@@ -326,7 +328,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             void run(async signal => {
               const added = await importShow(show,signal);
               if (!signal.aborted) location.hash = showPath(added);
-            },'Не удалось добавить сериал. Проверь соединение и повтори попытку.').finally(() => { button.disabled = false; });
+            },() => { status.textContent = 'Не удалось добавить сериал. Проверь соединение и повтори попытку.'; },12000)
+              .finally(() => { button.disabled = false; });
           });
           cards.set(id,card);
           results.append(card);
@@ -341,44 +344,66 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             title.after(make('span','library-tile-original',show.title));
           }
         }
-        const russian = seriesMetadata.russianSearch(query,signal).catch(() => []);
-        const matches = await tvmaze('search/shows?q=' + encodeURIComponent(query),signal).catch(() => []);
-        if (signal.aborted) return;
-        const normalizedTitle = title => title.toLocaleLowerCase('ru').replaceAll('ё','е');
-        const queryText = normalizedTitle(query);
-        const direct = matches.filter(({show}) => normalizedTitle(seriesDisplayTitle({
-          id:'tvmaze-' + show.id,mazeId:show.id,title:show.name
-        })).includes(queryText));
-        const selected = [...direct,...matches.filter(match => !direct.includes(match))];
-        for (const {show} of selected.slice(0,12)) addResult(show);
-        if (seen.size) status.textContent = 'Результаты поиска';
-        const localize = seriesMetadata.searchTitles(previews,signal,updateTitle).catch(() => {});
-        const wikidata = await russian;
-        await Promise.allSettled(wikidata.map(async entry => {
-          const listed = matches.find(({show}) => show.id === entry.id)?.show;
-          const show = listed || await tvmaze('shows/' + entry.id,signal);
+        async function loadMatches() {
+          const matches = await tvmaze('search/shows?q=' + encodeURIComponent(query),signal);
           if (signal.aborted) return;
-          addResult(show,entry.name);
-          const preview = previews.find(item => item.mazeId === entry.id);
-          if (preview) updateTitle(preview);
-        }));
-        await localize;
+          const matchName = show => normalizedTitle(seriesDisplayTitle({
+            id:'tvmaze-' + show.id,mazeId:show.id,title:show.name
+          })).includes(normalized);
+          const sorted = [...matches].sort((a,b) => Number(matchName(b.show)) - Number(matchName(a.show)));
+          for (const {show} of sorted.slice(0,12)) addResult(show);
+          if (seen.size) status.textContent = 'Результаты поиска';
+          await seriesMetadata.searchTitles(previews,signal,updateTitle).catch(() => {});
+          if (signal.aborted) return;
+          const missing = previews.filter(show => !/\p{Script=Cyrillic}/u.test(seriesDisplayTitle(show))).slice(0,6);
+          await Promise.allSettled(missing.map(async show => {
+            const names = await tvmaze('shows/' + show.mazeId + '/akas',signal);
+            const russian = names.filter(item => /\p{Script=Cyrillic}/u.test(item.name || ''));
+            const alias = russian.find(item => item.country?.code === 'RU') || russian.find(item => item.country == null);
+            if (!signal.aborted && alias && !/\p{Script=Cyrillic}/u.test(seriesDisplayTitle(show))) {
+              seriesMetadata.rememberSearchTitle(show,alias.name);
+              updateTitle(show);
+            }
+          }));
+        }
+        async function loadLocalNames() {
+          const editorial = Object.entries(seriesEditorial)
+            .filter(([,entry]) => entry.title && normalizedTitle(entry.title).includes(normalized))
+            .map(([id,entry]) => ({id:Number(id),name:entry.title}));
+          const fetchCards = entries => Promise.allSettled(entries.filter(entry => !seen.has('tvmaze-' + entry.id))
+            .map(async entry => {
+              const show = await tvmaze('shows/' + entry.id,signal);
+              if (signal.aborted) return;
+              addResult(show,entry.name);
+              if (seen.size) status.textContent = 'Результаты поиска';
+            }));
+          const direct = fetchCards(editorial);
+          const alternatives = seriesMetadata.russianSearch(query,signal).then(entries =>
+            fetchCards(entries.filter(entry => !editorial.some(item => item.id === entry.id))));
+          await Promise.all([direct,alternatives]);
+        }
+        const outcomes = await Promise.allSettled([loadMatches(),loadLocalNames()]);
         if (signal.aborted) return;
-        const missing = previews.filter(show => !/\p{Script=Cyrillic}/u.test(seriesDisplayTitle(show))).slice(0,6);
-        void Promise.allSettled(missing.map(async show => {
-          const names = await tvmaze('shows/' + show.mazeId + '/akas',signal);
-          const russian = names.filter(item => /\p{Script=Cyrillic}/u.test(item.name || ''));
-          const alias = russian.find(item => item.country?.code === 'RU') ||
-            russian.find(item => item.country == null);
-          if (!signal.aborted && alias) {
-            seriesMetadata.rememberSearchTitle(show,alias.name);
-            updateTitle(show);
-          }
-        }));
-        status.textContent = seen.size ? 'Результаты поиска' : 'Сериал не найден';
-      },local.length ? 'Показаны совпадения из каталога. TVmaze сейчас недоступен.' : 'TVmaze сейчас недоступен. Попробуй ещё раз.');
+        status.textContent = seen.size ? 'Результаты поиска' : outcomes.every(item => item.status === 'rejected')
+          ? 'Источники поиска недоступны. Попробуй ещё раз.' : 'Сериал не найден';
+      },() => {
+        status.textContent = results.childElementCount ? 'Результаты поиска' : 'Источники поиска не ответили. Попробуй ещё раз.';
+      });
+    }
+    form.onsubmit = event => {
+      event.preventDefault();
+      search();
     };
-    cleanup = () => { session.abort(); operation?.abort(); };
+    function scheduleSearch(event) {
+      clearTimeout(debounce);
+      operation?.abort();
+      operation = null;
+      results.replaceChildren();
+      status.textContent = '';
+      if (!event.isComposing && input.value.trim().length >= 2) debounce = setTimeout(search,300);
+    }
+    input.oninput = input.oncompositionend = scheduleSearch;
+    cleanup = () => { clearTimeout(debounce); session.abort(); operation?.abort(); };
   }
   function imdbLink(record,suffix='ratings/') {
     return 'https://www.imdb.com/title/' + record.id + '/' + suffix;
@@ -415,7 +440,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         token ? 'Токен сохранён для этой вкладки.' : 'Новые запросы к TMDB отключены.';
     };
   }
-  function hydrate(show,update,status) {
+  function hydrate(show,update,status,items) {
     const signal = metadataSession.signal;
     const timer = setTimeout(() => {
       if (!signal.aborted && status) status.textContent = 'Источник метаданных отвечает дольше обычного.';
@@ -424,28 +449,35 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const abort = () => controller.abort();
     signal.addEventListener('abort',abort,{once:true});
     const timeout = setTimeout(abort,18000);
+    const titleJobs = [];
+    const refresh = () => { if (!controller.signal.aborted) update(); };
+    const requestTitles = () => titleJobs.push(seriesMetadata.loadEpisodeTitles(show,items,controller.signal,refresh));
+    if (items) requestTitles();
     void seriesMetadata.load(show,controller.signal,() => {
-      if (!signal.aborted) update();
+      if (controller.signal.aborted) return;
+      refresh();
+      if (items) requestTitles();
     }).catch(error => {
       if (status && !signal.aborted) status.textContent = error.message;
-    }).finally(() => {
+    }).finally(async () => {
+      await Promise.allSettled(titleJobs);
       clearTimeout(timer);
       clearTimeout(timeout);
       signal.removeEventListener('abort',abort);
     });
   }
-  function translateButton(show,items,update,status) {
-    if (!seriesMetadata.canTranslate(show)) return null;
-    const button = make('button','tonal',items.length === 1 ? 'Перевести на русский' : 'Перевести сезон на русский');
+  function translateButton(show,items,update,status,titlesOnly=false) {
+    if (!items.length || !seriesMetadata.canTranslate(show)) return null;
+    const button = make('button','tonal',titlesOnly ? 'Перевести названия серий' : 'Перевести на русский');
     button.onclick = async () => {
       const signal = metadataSession.signal;
       button.disabled = true;
       status.textContent = 'Готовим перевод…';
       try {
-        await seriesMetadata.translate(show,items,signal,update);
+        await seriesMetadata.translate(show,items,signal,update,titlesOnly);
         if (!signal.aborted) status.textContent = 'Перевод сохранён в этом браузере.';
       } catch {
-        if (!signal.aborted) status.textContent = 'Перевод недоступен. Можно подключить русские метаданные в настройках.';
+        if (!signal.aborted) status.textContent = 'Перевод в браузере сейчас недоступен.';
       } finally {
         button.disabled = false;
       }
@@ -703,11 +735,12 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const viewed = readLocal(historyKeyFor(show));
     const status = make('p','muted');
     status.setAttribute('role','status');
-    const translate = season ? translateButton(show,episodes,() => update(),status) : null;
+    const translate = translateButton(show,episodes,() => update(),status,true);
     const normalize = value => String(value).toLocaleLowerCase('ru-RU').replaceAll('ё','е');
     const update = () => {
       const term = normalize(query.value.trim());
       seriesLink.textContent = seriesDisplayTitle(show);
+      if (translate) translate.hidden = episodes.every(item => seriesMetadata.episode(show,item).translated);
       toggleMarks.textContent = preferences.hideImportance ? 'Показать пометки' : 'Скрыть пометки';
       toggleMarks.setAttribute('aria-pressed',preferences.hideImportance);
       const rows = episodes.filter(item => {
@@ -733,7 +766,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     update();
     section.append(toolbar,count,...(translate ? [translate] : []),status,list);
     $('series').replaceChildren(section);
-    hydrate(show,update,status);
+    hydrate(show,update,status,episodes);
+    void seriesMetadata.translateIfReady(show,episodes,metadataSession.signal,update,true);
   }
   function renderEpisode(show,item) {
     const panel = $('series');
@@ -1177,7 +1211,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const selected = preselectedVoice || 'native:' + (saved.nativeVoice || '');
       renderStreamChoices(preflight,'Озвучка',items,selected,value => { preselectedVoice = value; },true);
     });
-    hydrate(show,updateMetadata,metadataStatus);
+    hydrate(show,updateMetadata,metadataStatus,[item]);
     void seriesMetadata.translateIfReady(show,[item],metadataSession.signal,updateMetadata);
     if (openSourcesFor === watchPath(show,item)) {
       openSourcesFor = null;
