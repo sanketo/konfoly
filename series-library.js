@@ -4,6 +4,7 @@ window.konfolyLibrary = (() => {
     image:'assets/mentalist-poster.webp?v=20'
   };
   const libraryKey = 'konfoly-library-v1';
+  const pinnedKey = 'konfoly-pinned-series-v1';
   const imported = readImports();
   const isInterns = show => show.mazeId === interns.mazeId || show.imdb?.id === interns.imdb.id;
   const importedInterns = imported.find(isInterns);
@@ -152,6 +153,7 @@ window.konfolyLibrary = (() => {
   function showHue(show) {
     if (show === mentalist) return 22;
     if (Number.isFinite(show.hue)) return show.hue;
+    if (show.mazeId === 44776 || show.id === 'tvmaze-44776') return 151;
     return [...show.id].reduce((value,char) => (value * 31 + char.charCodeAt(0)) % 360,0);
   }
   function showCard(show,add) {
@@ -166,7 +168,7 @@ window.konfolyLibrary = (() => {
     if (facts) copy.append(make('span','muted',facts));
     if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
     tile.style.setProperty('--tile-hue',showHue(show));
-    if (show.hue == null && show.image) void posterHue(show.image).then(hue => {
+    if (show.hue == null && show.mazeId !== 44776 && show.id !== 'tvmaze-44776' && show.image) void posterHue(show.image).then(hue => {
       if (hue != null) tile.style.setProperty('--tile-hue',hue);
     });
     tile.append(poster(show),copy);
@@ -207,12 +209,22 @@ window.konfolyLibrary = (() => {
   function renderLibrary() {
     const grid = $('library-grid');
     for (const card of grid.querySelectorAll('[data-imported]')) card.remove();
-    $('library-interns').hidden = !!importedInterns;
-    grid.append(...imported.filter(show => !isInterns(show) || show === importedInterns).map(show => {
+    const pinned = readLocal(pinnedKey);
+    const savedShows = libraryShows().filter(show => pinned[show.id] || imported.includes(show) ||
+      (show === mentalist ? !!readPlaybackMemory().last : !!readPlaybackMemory(progressKey(show)).last));
+    grid.hidden = savedShows.length === 0;
+    grid.append(...savedShows.map(show => {
       const card = showCard(show);
       card.dataset.imported = '';
       return card;
     }));
+    function searchCard(show) {
+      if (savedShows.includes(show)) return showCard(show);
+      return showCard(show,() => {
+        writeLocal(pinnedKey,{...readLocal(pinnedKey),[show.id]:true});
+        location.hash = showPath(show);
+      });
+    }
     const form = $('library-add-form');
     const input = form.querySelector('input');
     const submit = form.querySelector('button');
@@ -247,7 +259,7 @@ window.konfolyLibrary = (() => {
       const normalized = query.toLocaleLowerCase('ru');
       const local = libraryShows().filter(show =>
         [seriesDisplayTitle(show),show.title,show.original].some(title => title?.toLocaleLowerCase('ru').includes(normalized)));
-      results.append(...local.map(show => showCard(show)));
+      results.append(...local.map(searchCard));
       status.textContent = 'Ищем в TVmaze…';
       void run(async signal => {
         const matches = await tvmaze('search/shows?q=' + encodeURIComponent(query),signal);
@@ -259,9 +271,9 @@ window.konfolyLibrary = (() => {
           const id = known?.id || 'tvmaze-' + show.id;
           if (seen.has(id)) continue;
           seen.add(id);
-          if (known) { results.append(showCard(known)); continue; }
+          if (known) { results.append(searchCard(known)); continue; }
           const preview = {id,title:show.name,years:show.premiered?.slice(0,4),
-            image:mazeImage(show.image),preview:true};
+            image:mazeImage(show.image),mazeId:show.id,preview:true};
           results.append(showCard(preview,button => {
             button.disabled = true;
             status.textContent = 'Загружаем эпизоды…';
@@ -290,6 +302,7 @@ window.konfolyLibrary = (() => {
   }
   function settings() {
     const form = $('kinopoisk-key-form');
+    if (!form) return;
     const input = $('kinopoisk-key');
     const status = $('kinopoisk-key-status');
     input.value = seriesMetadata.apiKey();
@@ -433,9 +446,14 @@ window.konfolyLibrary = (() => {
       const name = seriesDisplayTitle(show);
       if (!title.firstElementChild) title.textContent = name;
       const tmdbLogos = Array.isArray(data.tmdbLogos) ? data.tmdbLogos : [];
-      const addresses = [...new Set([data.kpLogo,...tmdbLogos,show.logo,data.commonsLogo].filter(address => typeof address === 'string' && address))];
-      for (const address of addresses) {
-        if (!(await seriesMetadata.transparentLogo(address))) continue;
+      const commons = Array.isArray(data.commonsLogos) ? data.commonsLogos : [];
+      const wiki = Array.isArray(data.wikiLogos) ? data.wikiLogos : [];
+      const operator = Array.isArray(data.operatorLogos) ? data.operatorLogos : [];
+      const addresses = [...new Set([show.logo,...operator,data.kpLogo,...tmdbLogos,...commons,data.commonsLogo,...wiki]
+        .filter(address => typeof address === 'string' && address))];
+      const checks = addresses.map(address => seriesMetadata.transparentLogo(address));
+      for (const [index,address] of addresses.entries()) {
+        if (!(await checks[index])) continue;
         if (revision !== titleRevision) return;
         if (title.firstElementChild?.getAttribute('src') === address) {
           title.firstElementChild.alt = name;
@@ -466,11 +484,6 @@ window.konfolyLibrary = (() => {
     actions.append(link(last ? '▶ Продолжить просмотр' : '▶ Открыть первую серию',
       watchPath(show,last || show.episodes[0]),'filled'),
       link('Все эпизоды',seasonPath(show,last?.season || show.episodes[0].season),'tonal'));
-    if (show.official) {
-      const watchOfficial = external('Открыть на PREMIER',show.official);
-      watchOfficial.className = 'tonal';
-      actions.append(watchOfficial);
-    }
     copy.append(heading,rating);
     const synopsis = make('p','synopsis');
     const attribution = make('p','muted synopsis-source');
@@ -668,6 +681,9 @@ window.konfolyLibrary = (() => {
     folderInput.setAttribute('webkitdirectory','');
     let release;
     let pending;
+    let preselectedVoice;
+    const preview = new AbortController();
+    const preflight = get('watch-preflight');
 
     function setSource(kind,value) {
       const template = /{season}|{episode}/.test(value);
@@ -720,7 +736,8 @@ window.konfolyLibrary = (() => {
     const allohaField = sourceField('Ссылка для вставки Alloha',
       'Вставь адрес iframe для серии или шаблон провайдера с {season} и {episode}. Возможна реклама.',
       'alloha',saved.allohaEpisodes?.[itemId] || saved.allohaTemplate);
-    sourceBox.append(sourceHeading,sourceFeedback,videoField,manifestField,allohaField,fileInput,folderInput);
+    sourceBox.append(sourceHeading,sourceFeedback,fileInput,folderInput);
+    if (integrationEditorAvailable()) sourceBox.append(videoField,manifestField,allohaField);
 
     function storeEpisodeProgress(entry) {
       const entries = readLocal(historyKeyFor(show));
@@ -805,9 +822,10 @@ window.konfolyLibrary = (() => {
       const list = [];
       if (attachedFile()) list.push('folder');
       if (seriesSource(show,item,saved,'video')) list.push('video');
-      if (episodeEndpoint()) list.push('endpoint');
-      if (stremioSource() && canUseStremio(show)) list.push('stremio');
       if (nativeAvailable) list.push('native');
+      if (stremioSource() && canUseStremio(show)) list.push('stremio');
+      if (episodeEndpoint()) list.push('endpoint');
+      if (seriesSource(show,item,saved,'alloha')) list.push('alloha');
       return list;
     }
     function playbackUnavailable(message) {
@@ -815,6 +833,7 @@ window.konfolyLibrary = (() => {
       release = null;
       quality.textContent = '';
       screen.replaceChildren(empty);
+      if (preflight.childElementCount) preflight.hidden = false;
       status.textContent = sourceFeedback.textContent = message;
       updateControls();
       showSources();
@@ -828,7 +847,7 @@ window.konfolyLibrary = (() => {
     function openAutomatic(candidates,time) {
       const [id,...rest] = candidates;
       if (!id) {
-        playbackUnavailable('Для этой серии пока нет прямого видео. Выбери файл или настрой источник.');
+        playbackUnavailable('Видео для этой серии пока недоступно.');
         return;
       }
       const next = rest.length ? position => openAutomatic(rest,position ?? time) : undefined;
@@ -848,7 +867,6 @@ window.konfolyLibrary = (() => {
       stremioButton.hidden = !stremioSource() || !canUseStremio(show);
       defaultNativeButton.hidden = !nativeAvailable;
       connectedFolder.hidden = !attachedFile();
-      vidLinkButton.hidden = !canUseVidLink(show);
       for (const [id,control] of [['video',nativeButton],['alloha',allohaButton]]) {
         control.hidden = !seriesSource(show,item,saved,id) && !(id === 'video' && saved.manifest);
       }
@@ -857,22 +875,13 @@ window.konfolyLibrary = (() => {
       pending?.abort();
       const controller = new AbortController();
       pending = controller;
+      preflight.hidden = true;
       sourceFeedback.textContent = '';
       const timer = setTimeout(() => controller.abort(),12000);
       try {
         const source = override || (id === 'video' && saved.preferred === 'manifest' && saved.manifest ?
           {manifest:saved.manifest} : seriesSource(show,item,saved,id));
         status.textContent = 'Подключаем видео…';
-        if (id === 'vidlink') {
-          const viewed = readLocal(historyKeyFor(show))[itemId];
-          const address = await resolveVidLink(show,item,controller.signal,viewed?.time);
-          if (controller.signal.aborted || pending !== controller) return;
-          externalLink.href = address;
-          externalLink.hidden = false;
-          externalLink.focus();
-          status.textContent = 'VidLink открывается в новой вкладке.';
-          return;
-        }
         if (id === 'alloha') {
           if (!source?.address) throw Error('Укажи ссылку Alloha для этой серии.');
           release?.();
@@ -900,7 +909,17 @@ window.konfolyLibrary = (() => {
           }
           if (controller.signal.aborted || pending !== controller) return;
           pending = null;
-          play(result.url,null,id,resumeTime,result.format,{next,retry,alternatives:result.alternatives,label:result.label,dubbing:{items:result.voices,selected:result.voice}});
+          if (result.kind === 'embed') {
+            release?.();
+            release = null;
+            if (sourceBox.open) sourceBox.close();
+            screen.replaceChildren(createExternalVideoFrame(result.url,result.provider || 'Встроенный плеер'));
+            status.textContent = result.provider || 'Встроенный плеер';
+            return;
+          }
+          const fallback = result.embedFallback || null;
+          const onFailure = fallback ? position => void openProvider('endpoint',undefined,position,{choice:fallback.choice,next}) : next;
+          play(result.url,null,id,resumeTime,result.format,{next:onFailure,retry,alternatives:result.alternatives,label:result.label,dubbing:{items:result.voices,selected:result.voice}});
         }
         saved.preferred = id === 'video' && source?.manifest && saved.manifest === source.manifest ? 'manifest' : id;
         writeLocal(sourceKey,saved);
@@ -914,7 +933,7 @@ window.konfolyLibrary = (() => {
         }
         const message = controller.signal.aborted ? 'Источник не ответил за 12 секунд.' :
           (error instanceof TypeError ? 'Источник недоступен. Проверь сеть и настройки доступа.' : error.message);
-        if (['vidlink','alloha'].includes(id)) {
+        if (id === 'alloha') {
           sourceFeedback.textContent = message;
           showSources();
         } else playbackUnavailable(message);
@@ -926,7 +945,10 @@ window.konfolyLibrary = (() => {
     function startAutomatic(time) {
       pending?.abort();
       pending = null;
-      openAutomatic(candidateSources(),time);
+      if (preselectedVoice) {
+        const [source,...parts] = preselectedVoice.split(':');
+        void openProvider(source,undefined,time,{choice:parts.join(':')});
+      } else openAutomatic(candidateSources(),time);
     }
     preferred.onclick = () => startAutomatic();
     restart.onclick = () => startAutomatic(0);
@@ -938,10 +960,6 @@ window.konfolyLibrary = (() => {
     const allohaButton = make('button','tonal','Alloha');
     const endpointButton = make('button','tonal','Общий источник');
     const stremioButton = make('button','tonal','Stremio');
-    const vidLinkButton = make('button','tonal','VidLink · внешняя вкладка');
-    const externalLink = external('Открыть на VidLink','#');
-    externalLink.className = 'tonal';
-    externalLink.hidden = true;
     const chooseFile = make('button','tonal','Выбрать файл');
     const chooseFolder = make('button','tonal','Подключить папку');
     chooseFolder.hidden = !supportsFolder;
@@ -952,24 +970,13 @@ window.konfolyLibrary = (() => {
     allohaButton.onclick = () => { void openProvider('alloha'); };
     endpointButton.onclick = () => { void openProvider('endpoint'); };
     stremioButton.onclick = () => { void openProvider('stremio'); };
-    vidLinkButton.onclick = () => { void openProvider('vidlink'); };
     chooseFile.onclick = () => fileInput.click();
     chooseFolder.onclick = () => folderInput.click();
     connectedFolder.onclick = () => {
       const file = attachedFile();
       if (file) playFile(file);
     };
-    sourceActions.append(defaultNativeButton,nativeButton,endpointButton,stremioButton,chooseFile,chooseFolder,connectedFolder,vidLinkButton,externalLink,allohaButton,
-      link('Настроить общий источник','#settings','text-action'));
-    if (show.official) {
-      const official = external('Открыть на PREMIER',show.official);
-      official.className = 'tonal';
-      let officialPath = 'https://rutube.ru/metainfo/tv/891104/';
-      try { officialPath += 'season' + providerEpisode(show,item).season + '/'; } catch {}
-      const rutube = external('Открыть на RUTUBE',officialPath);
-      rutube.className = 'tonal';
-      sourceActions.append(official,rutube);
-    }
+    sourceActions.append(defaultNativeButton,nativeButton,endpointButton,stremioButton,chooseFile,chooseFolder,connectedFolder,allohaButton);
     sourceHeading.after(sourceActions);
     updateControls();
     fileInput.onchange = () => {
@@ -1053,6 +1060,12 @@ window.konfolyLibrary = (() => {
     if (translate) description.append(translate);
     description.append(metadataStatus);
     panel.replaceChildren(fragment,sourceBox);
+    const previewTimer = setTimeout(() => preview.abort(),9000);
+    previewEpisodeVoices(show,item,preview.signal,items => {
+      if (pending || screen.querySelector('video,iframe')) return;
+      const selected = preselectedVoice || 'native:' + (saved.nativeVoice || '');
+      renderStreamChoices(preflight,'Озвучка',items,selected,value => { preselectedVoice = value; },true);
+    });
     hydrate(show,updateMetadata,metadataStatus);
     if (openSourcesFor === watchPath(show,item)) {
       openSourcesFor = null;
@@ -1060,6 +1073,8 @@ window.konfolyLibrary = (() => {
     }
 
     cleanup = () => {
+      clearTimeout(previewTimer);
+      preview.abort();
       const previousRequest = pending;
       pending = null;
       previousRequest?.abort();
@@ -1090,10 +1105,10 @@ window.konfolyLibrary = (() => {
             const max = Math.max(r,g,b);
             const min = Math.min(r,g,b);
             const delta = max - min;
-            if (pixels[i+3] < 200 || delta < 36 || max < 62) continue;
+            if (pixels[i+3] < 200 || delta < 26 || max < 58) continue;
             const sector = max === r ? (g-b)/delta : max === g ? (b-r)/delta + 2 : (r-g)/delta + 4;
             const bin = Math.round(sector * 2 + 12) % 12;
-            weights[bin] += delta * delta * (255 - min) / 255;
+            weights[bin] += delta ** 2.4 * (255 - min) / 255;
           }
           const best = Math.max(...weights);
           done(best ? [28,58,91,120,142,164,191,219,255,280,326,353][weights.indexOf(best)] : null);
@@ -1114,7 +1129,7 @@ window.konfolyLibrary = (() => {
       root.style.setProperty('--show-hue',String(showHue(show)));
       root.style.setProperty('--show-chroma',show === mentalist ? '.15' : '.11');
       root.dataset.series = show.id;
-      if (show !== mentalist && show.hue == null && /^https:\/\/static\.tvmaze\.com\//.test(show.image || '')) {
+      if (show !== mentalist && show.hue == null && show.mazeId !== 44776 && /^https:\/\/static\.tvmaze\.com\//.test(show.image || '')) {
         void posterHue(show.image).then(hue => {
           if (hue == null || root.dataset.series !== show.id) return;
           root.style.setProperty('--show-hue',String(hue));

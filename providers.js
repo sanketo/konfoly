@@ -2,9 +2,8 @@ const mediaProviders = [
   {id:'native',title:'Наш плеер',detail:'Рекомендуемый · ТВ3, Universal и TVShows при наличии',action:'Смотреть'},
   {id:'endpoint',title:'Общий источник',detail:'Прямое видео в нашем плеере по ID сериала и номеру серии.',action:'Смотреть'},
   {id:'stremio',title:'Stremio',detail:'Прямое видео из подключённого дополнения в нашем плеере.',action:'Смотреть'},
-  {id:'vidlink',title:'VidLink',detail:'Открывается в новой вкладке · возможна реклама. Русская озвучка и качество зависят от серии.',action:'Открыть'},
   {id:'namy',title:'Namy / Collaps',detail:'Запасной плеер с рекламой. Настройки и прогресс управляются поставщиком.',action:'Открыть'},
-  {id:'alloha',title:'Alloha',detail:'Внешний плеер · возможна реклама. Подключается по готовой ссылке для вставки.',action:'Настроить'},
+  {id:'alloha',title:'Alloha',detail:'Встроенный плеер · возможна реклама.',action:'Настроить'},
   {id:'tomion',title:'Tomion',detail:'Резервный источник. Ранее возвращал ошибку доступа.',action:'Проверить'},
   {id:'file',title:'Файл с устройства',detail:'MP4, WebM и другие форматы, которые поддерживает браузер.',action:'Выбрать видео'},
   {id:'custom',title:'Свой источник',detail:'Прямое видео или встраиваемый плеер.',action:'Настроить ссылку'}
@@ -28,20 +27,37 @@ function seriesNativeId(show) {
 function canResolveSeriesNative(show) {
   return !!seriesNativeId(show) || /^tt\d{5,12}$/.test(show.imdb?.id || '');
 }
-async function resolveNative({season,episode,voice,quality,kinopoiskId=412344}, signal) {
-  const api = 'https://plapi.cdnvideohub.com/api/v1/player/sv';
-  const combined = kinopoiskId === 412344 && voice === 'ТВ3' && season === 3 && episode >= 23;
-  const number = combined ? 23 : episode;
-  async function get(path) {
-    const response = await fetch(api + path,{signal});
-    if (!response.ok) throw Error('Источник недоступен. Повтори попытку.');
-    return response.json();
-  }
-  const list = await get('/playlist?pub=10428&id=' + kinopoiskId + '&aggr=kp&ep=' + number + '&sn=' + season);
-  const matching = (Array.isArray(list.items) ? list.items : []).filter(row =>
-    row.season === season && row.episode === number && row.vkId);
-  const voices = [...new Set(matching.map(row => row.voiceStudio).filter(value => typeof value === 'string' && value.trim()))]
+const nativePlaylists = new Map();
+async function nativeRequest(path,signal) {
+  const response = await fetch('https://plapi.cdnvideohub.com/api/v1/player/sv/' + path,{signal});
+  if (!response.ok) throw Error('Источник недоступен. Повтори попытку.');
+  return response.json();
+}
+async function nativePlaylist(kinopoiskId,season,number,signal) {
+  const query = 'playlist?pub=10428&id=' + kinopoiskId + '&aggr=kp&ep=' + number + '&sn=' + season;
+  const cached = nativePlaylists.get(query);
+  if (cached && Date.now() - cached.time < 180000) return cached.rows;
+  const list = await nativeRequest(query,signal);
+  const rows = (Array.isArray(list.items) ? list.items : []).filter(row =>
+    Number(row.season) === season && Number(row.episode) === number && row.vkId);
+  if (nativePlaylists.size >= 25) nativePlaylists.delete(nativePlaylists.keys().next().value);
+  nativePlaylists.set(query,{time:Date.now(),rows});
+  return rows;
+}
+function nativeVoices(rows) {
+  return [...new Set(rows.map(row => row.voiceStudio).filter(value => typeof value === 'string' && value.trim()))]
     .map(value => ({id:value,label:value}));
+}
+async function discoverNativeVoices(kinopoiskId,season,episode,signal) {
+  const rows = await nativePlaylist(kinopoiskId,season,episode,signal);
+  if (kinopoiskId !== 412344 || season !== 3 || episode !== 24) return nativeVoices(rows);
+  const finale = await nativePlaylist(kinopoiskId,season,23,signal).catch(() => []);
+  return nativeVoices([...rows,...finale.filter(row => row.voiceStudio === 'ТВ3')]);
+}
+async function resolveNative({season,episode,voice,quality,kinopoiskId=412344},signal) {
+  const combined = kinopoiskId === 412344 && voice === 'ТВ3' && season === 3 && episode >= 23;
+  const matching = await nativePlaylist(kinopoiskId,season,combined ? 23 : episode,signal);
+  const voices = nativeVoices(matching).filter(item => !combined || item.id === voice);
   const items = matching.filter(row => !voice || row.voiceStudio === voice);
   if (!items.length) throw Error(voice
     ? 'Для этой серии нет выбранной озвучки. Выбери другую в настройках источника.'
@@ -52,7 +68,7 @@ async function resolveNative({season,episode,voice,quality,kinopoiskId=412344}, 
   for (const item of items) {
     let media;
     try {
-      media = await get('/video/' + encodeURIComponent(item.vkId));
+      media = await nativeRequest('video/' + encodeURIComponent(item.vkId),signal);
     } catch (error) {
       if (signal?.aborted) throw error;
       continue;
@@ -124,9 +140,16 @@ async function resolveSeriesSource(source,item,signal) {
 const episodeEndpointKey = 'konfoly-episode-endpoint-v1';
 
 function episodeEndpoint() {
-  return readLocal(episodeEndpointKey).url || '';
+  return window.konfolyIntegrations?.episodeEndpoint || readLocal(episodeEndpointKey).url || '';
 }
 
+function integrationEditorAvailable() {
+  return ['localhost','127.0.0.1','[::1]'].includes(location.hostname);
+}
+function allowedIntegrationEmbed(url) {
+  const configured = window.konfolyIntegrations?.embedOrigins;
+  return Array.isArray(configured) && configured.includes(new URL(url).origin);
+}
 function providerEpisode(show,item) {
   if (show.mazeId !== 3391 || show.id === 'interns') return item;
   const absolute = Number(/^Серия\s+(\d+)$/iu.exec(item.title || '')?.[1]);
@@ -155,15 +178,20 @@ async function resolveEpisodeEndpoint(show,item,signal,choice) {
   for (const row of [result,...rows].slice(0,60)) {
     const url = typeof row?.url === 'string' && mediaAddress(row.url,item.season,item.episode);
     if (!url || addresses.has(url)) continue;
+    const kind = row.kind === 'embed' ? 'embed' : 'video';
+    if (kind === 'embed' && !allowedIntegrationEmbed(url)) continue;
     addresses.add(url);
     const label = typeof row.voice === 'string' ? row.voice.trim().slice(0,120) : '';
-    options.push({url,format:row.format === 'hls' ? 'hls' : undefined,label,
+    options.push({url,kind,format:row.format === 'hls' ? 'hls' : undefined,label,
+      provider:typeof row.provider === 'string' ? row.provider.slice(0,60) : '',
       choice:String(options.length),choiceLabel:label || 'Поток ' + (options.length+1)});
   }
   if (!options.length) throw Error('Общий источник не вернул HTTPS-ссылку на видео.');
+  options.sort((a,b) => Number(a.kind === 'embed') - Number(b.kind === 'embed'));
   const stream = choice == null ? options[0] : options.find(option => option.choice === choice);
   if (!stream) throw Error('Этот поток больше недоступен. Открой источник заново.');
-  return {...stream,alternatives:choice == null ? options.slice(1) : [],
+  return {...stream,alternatives:choice == null ? options.slice(1).filter(option => option.kind === 'video') : [],
+    embedFallback:choice == null && stream.kind === 'video' ? options.find(option => option.kind === 'embed') : undefined,
     voices:options.map(option => ({id:option.choice,label:option.choiceLabel})),voice:stream.choice};
 }
 
@@ -171,7 +199,7 @@ const stremioSourceKey = 'konfoly-stremio-source-v1';
 let stremioManifest;
 
 function stremioSource() {
-  return readLocal(stremioSourceKey).url || '';
+  return window.konfolyIntegrations?.stremioManifest || readLocal(stremioSourceKey).url || '';
 }
 
 function stremioManifestAddress(value) {
@@ -235,35 +263,6 @@ async function resolveStremio(show,item,signal,choice) {
   if (!stream) throw Error('Этот поток больше недоступен. Открой источник заново.');
   const alternatives = choice == null ? options.filter(option => option !== stream).slice(0,3) : [];
   return {...stream,alternatives,voices:options.map(option => ({id:option.choice,label:option.choiceLabel})),voice:stream.choice};
-}
-
-const vidLinkIds = new Map();
-
-function canUseVidLink(show) {
-  return Number.isInteger(show.tmdbId) || /^tt\d+$/.test(show.imdb?.id || '');
-}
-
-async function resolveVidLink(show,item,signal,time=0) {
-  const imdb = show.imdb?.id;
-  let id = show.tmdbId || vidLinkIds.get(imdb);
-  if (!id) {
-    if (!canUseVidLink(show)) throw Error('Для этого сериала нет идентификатора IMDb или TMDB.');
-    const query = new URL('https://query.wikidata.org/sparql');
-    query.searchParams.set('query','SELECT DISTINCT ?tmdb WHERE { ?show wdt:P345 "' + imdb + '" ; wdt:P4983 ?tmdb . } LIMIT 2');
-    query.searchParams.set('format','json');
-    const response = await fetch(query,{signal,credentials:'omit'});
-    if (!response.ok) throw Error('Не удалось сопоставить сериал с каталогом VidLink.');
-    const matches = (await response.json()).results?.bindings;
-    if (matches?.length !== 1 || !/^\d+$/.test(matches[0].tmdb?.value || '')) {
-      throw Error('Для этого сериала не найден однозначный идентификатор TMDB.');
-    }
-    id = Number(matches[0].tmdb.value);
-    vidLinkIds.set(imdb,id);
-  }
-  const url = new URL('https://vidlink.pro/tv/' + id + '/' + item.season + '/' + item.episode);
-  url.searchParams.set('autoplay','false');
-  if (time > 0) url.searchParams.set('startAt',String(Math.floor(time)));
-  return url.href;
 }
 
 let hlsScript;
@@ -413,8 +412,9 @@ function indexEpisodeFiles(files,episodes) {
   return found;
 }
 
-function renderStreamChoices(container,name,items=[],selected,onChange) {
-  container.hidden = items.length < 2;
+function renderStreamChoices(container,name,items=[],selected,onChange,showSingle=false) {
+  if (!container) return;
+  container.hidden = items.length < (showSingle ? 1 : 2);
   container.replaceChildren();
   if (container.hidden) return;
   const select = make('select');
@@ -430,4 +430,28 @@ function renderStreamChoices(container,name,items=[],selected,onChange) {
   field.append(make('label',null,name),select);
   container.append(field);
   window.enhanceKinosalSelect?.(select);
+}
+
+function previewEpisodeVoices(show,item,signal,callback) {
+  const native = async () => {
+    const id = seriesNativeId(show) || (show.mazeId === 116 ? 412344 : await seriesMetadata.kinopoiskId(show,signal));
+    if (!id) return [];
+    const number = providerEpisode(show,item);
+    return discoverNativeVoices(id,number.season,number.episode,signal);
+  };
+  const providers = [
+    ['native',native,canResolveSeriesNative(show) || show.mazeId === 116],
+    ['stremio',async () => (await resolveStremio(show,item,signal)).voices,stremioSource() && canUseStremio(show)],
+    ['endpoint',async () => (await resolveEpisodeEndpoint(show,item,signal)).voices,episodeEndpoint()]
+  ].filter(([, , enabled]) => enabled);
+  const found = new Map();
+  for (const [source,load] of providers) void load().then(items => {
+    if (!signal.aborted && items?.length) {
+      found.set(source,items);
+      callback(providers.flatMap(([id]) => (found.get(id) || []).map(item => ({
+        id:id + ':' + item.id,
+        label:id === 'native' ? item.label : item.label + (id === 'stremio' ? ' · Stremio' : ' · Дополнительный источник')
+      }))));
+    }
+  }).catch(() => {});
 }

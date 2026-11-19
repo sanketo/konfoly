@@ -481,3 +481,10 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
  .hero:has(.synopsis-source:not([hidden])) { grid-template-areas:"heading poster" "ratings ratings" "description description" "attribution attribution" "actions actions" "resume resume" }
  .hero .synopsis-source { grid-area:attribution }
 }
+
+.watch-preflight { margin-block:12px; max-width:min(340px,100%); }
+.watch-preflight .watch-track-field { width:100%; }
+.watch-preflight .select-options { max-height:13rem; overflow:auto; }
+.library-add-panel { margin-top:16px; }
+.library-grid[hidden] + .library-add-panel { margin-top:0; }
+#integration-settings:empty { display:none }

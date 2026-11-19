@@ -117,16 +117,17 @@ const seriesMetadata = (() => {
     if (!/^tt\d{5,12}$/.test(imdb || '')) return {};
     const url = new URL('https://query.wikidata.org/sparql');
     url.searchParams.set('format','json');
-    url.searchParams.set('query','SELECT DISTINCT ?id ?logo ?ruTitle ?wikiTitle WHERE { ?s wdt:P345 "' + imdb +
+    url.searchParams.set('query','SELECT DISTINCT ?id ?logo ?ruTitle ?wikiTitle ?enWikiTitle WHERE { ?s wdt:P345 "' + imdb +
       '" . OPTIONAL { ?s wdt:P2603 ?id } OPTIONAL { ?s wdt:P154 ?logo } ' +
       'OPTIONAL { ?s rdfs:label ?ruTitle . FILTER(LANG(?ruTitle) = "ru") } ' +
-      'OPTIONAL { ?article schema:about ?s ; schema:isPartOf <https://ru.wikipedia.org/> ; schema:name ?wikiTitle } } LIMIT 12');
+      'OPTIONAL { ?article schema:about ?s ; schema:isPartOf <https://ru.wikipedia.org/> ; schema:name ?wikiTitle } OPTIONAL { ?en schema:about ?s ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?enWikiTitle } } LIMIT 12');
     const {results} = await json(url,{signal});
     const rows = results?.bindings || [];
     const ids = [...new Set(rows.map(row => row.id?.value).filter(value => /^[1-9]\d{1,9}$/.test(value || '')))];
     return {
       kpId:ids.length === 1 ? Number(ids[0]) : undefined,
-      commonsLogo:rows.map(row => image(row.logo?.value?.replace(/^http:/,'https:'))).find(Boolean),
+      commonsLogos:[...new Set(rows.map(row => image(row.logo?.value?.replace(/^http:/,'https:'))).filter(Boolean))],
+      enWikiTitle:text(rows[0]?.enWikiTitle?.value,230),
       wikiTitle:text(rows[0]?.wikiTitle?.value,230),ruTitle:text(rows[0]?.ruTitle?.value,230)
     };
   }
@@ -166,10 +167,43 @@ const seriesMetadata = (() => {
     return {wikiDescription:text(entry.extract,800),
       wikiSource:'https://ru.wikipedia.org/wiki/' + encodeURIComponent(entry.title.replaceAll(' ','_'))};
   }
+  async function articleLogos(show,title,language,signal) {
+    if (!title) return [];
+    const url = new URL('https://' + language + '.wikipedia.org/w/api.php');
+    const common = {action:'query',format:'json',formatversion:'2',origin:'*'};
+    for (const [key,value] of Object.entries({...common,prop:'images',imlimit:'50',titles:title})) url.searchParams.set(key,value);
+    const data = await json(url,{signal});
+    const comparable = value => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+    const names = [show.original,show.title,title.replace(/\s*\([^)]*\)/g,'')].filter(Boolean).map(comparable)
+      .filter(name => name.length >= 4);
+    const files = (data.query?.pages?.[0]?.images || []).map(entry => entry.title).filter(name => {
+      if (!/(logo|wordmark|логотип)/iu.test(name) || !/\.(png|svg|webp)$/i.test(name)) return false;
+      return names.some(title => comparable(name).includes(title));
+    }).slice(0,5);
+    if (!files.length) return [];
+    url.search = new URLSearchParams({...common,prop:'imageinfo',iiprop:'url',iiurlwidth:'430',titles:files.join('|')});
+    const result = await json(url,{signal});
+    return (result.query?.pages || []).map(file => image(file.imageinfo?.[0]?.thumburl || file.imageinfo?.[0]?.url)).filter(Boolean);
+  }
   async function load(show,signal,onChange) {
     const data = read(show);
     const key = apiKey();
     const jobs = [];
+    const logoAddress = window.konfolyIntegrations?.logoEndpoint;
+    if (logoAddress && /^tt\d{5,12}$/.test(show.imdb?.id || '') && !fresh(data.operatorLogosCheckedAt)) {
+      jobs.push((async () => {
+        const address = mediaAddress(logoAddress,1,1);
+        if (!address) return;
+        const query = new URL(address);
+        query.searchParams.set('imdb',show.imdb.id);
+        const result = await json(query,{signal});
+        if (signal.aborted) return;
+        const logos = (Array.isArray(result.logos) ? result.logos : []).slice(0,8)
+          .map(value => typeof value === 'string' && mediaAddress(value,1,1)).filter(Boolean);
+        save(show,{operatorLogos:logos,operatorLogosCheckedAt:Date.now()});
+        onChange();
+      })());
+    }
     const token = tmdbToken();
     if (token && !fresh(data.tmdbCheckedAt)) {
       jobs.push((async () => {
@@ -193,18 +227,27 @@ const seriesMetadata = (() => {
         onChange();
       })());
     }
-    if (!fresh(data.wikiCheckedAt) || !Object.hasOwn(data,'ruTitle')) {
+    if (!fresh(data.wikiCheckedAt) || !Object.hasOwn(data,'commonsLogos')) {
       jobs.push((async () => {
         const wiki = await wikidata(show,signal);
         if (signal.aborted) return;
         save(show,{...wiki,wikiCheckedAt:Date.now()});
         onChange();
+        const logoJob = Promise.allSettled([
+          articleLogos(show,wiki.wikiTitle,'ru',signal),
+          articleLogos(show,wiki.enWikiTitle,'en',signal)
+        ]).then(outcomes => {
+          if (signal.aborted) return;
+          const logos = outcomes.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+          if (logos.length) { save(show,{wikiLogos:logos}); onChange(); }
+        });
         if (wiki.wikiTitle && !/\p{Script=Cyrillic}/u.test(show.description || '')) {
           const intro = await wikiIntro(wiki.wikiTitle,signal);
           if (signal.aborted) return;
           save(show,intro);
           onChange();
         }
+        await logoJob;
       })());
     }
     if (key && (!fresh(data.kpCheckedAt) || !Object.hasOwn(data,'kpDescription'))) {

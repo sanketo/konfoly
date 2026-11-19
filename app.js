@@ -1,5 +1,7 @@
 const $ = id => document.getElementById(id);
 const watchLayout = $('watch-layout')?.content;
+const integrationLayout = $('integration-settings-layout')?.content;
+if (integrationLayout && integrationEditorAvailable()) $('integration-settings').append(integrationLayout.cloneNode(true));
 if (watchLayout) $('watch').append(watchLayout.cloneNode(true));
 function cloneWatchLayout() {
   const fragment = watchLayout.cloneNode(true);
@@ -25,6 +27,7 @@ let catalogSeason = current.season;
 let page = 'home';
 let telegramSync;
 let media, releaseMedia, fileUrl, request, pendingPosition = null, editEpisode;
+let voicePreview, preselectedVoice;
 const preferences = {
   theme:['auto','dark','light'].includes(saved.theme) ? saved.theme : 'auto',
   newYear: saved.newYear === true,
@@ -34,7 +37,7 @@ const preferences = {
   template:saved.template || null,
   alloha:typeof saved.alloha === 'string' ? saved.alloha : '',
   importance:saved.importance || {},
-  selected:mediaProviders.some(provider => provider.id === saved.selected && provider.id !== 'vidlink') ? saved.selected : 'native',
+  selected:mediaProviders.some(provider => provider.id === saved.selected) ? saved.selected : 'native',
   voice:typeof saved.voice === 'string' && saved.voice.trim() && saved.voice.length <= 80 ? saved.voice : 'ТВ3',
   quality:saved.quality === 'hd' ? 'hd' : 'fullhd',
   rate:[.75,1,1.25,1.5,1.75,2].includes(saved.rate) ? saved.rate : 1,
@@ -96,7 +99,13 @@ function route() {
   window.konfolyLibrary?.selectRoute(next);
   const switchedPage = next.page !== page;
   const changedEpisode = next.item && key(next.item) !== key(current);
-  if (next.page !== page || changedEpisode) clearMedia();
+  if (next.page !== page || changedEpisode) {
+    clearMedia();
+    voicePreview?.abort();
+    voicePreview = null;
+    preselectedVoice = null;
+    if (watchLayout) renderStreamChoices($('watch-preflight'),'Озвучка');
+  }
   if (next.page !== 'watch' && document.fullscreenElement === $('screen')) document.exitFullscreen().catch(()=>{});
   if (changedEpisode || next.page !== 'watch') pendingPosition = null;
   if (next.item) current = next.item;
@@ -377,6 +386,23 @@ function renderWatch() {
   $('previous').disabled = index === 0;
   $('next').disabled = index === episodeCatalog.length-1;
   updateWatched();
+  if (watchLayout && !voicePreview) {
+    const active = current;
+    const controller = new AbortController();
+    voicePreview = controller;
+    const timer = setTimeout(() => controller.abort(),9000);
+    controller.signal.addEventListener('abort',() => clearTimeout(timer),{once:true});
+    previewEpisodeVoices({mazeId:116,imdb:externalRatingData.series.imdb},active,controller.signal,items => {
+      if (media || request || $('screen').querySelector('iframe')) return;
+      const desired = preselectedVoice || 'native:' + preferences.voice;
+      const selected = items.some(item => item.id === desired) ? desired : items[0].id;
+      renderStreamChoices($('watch-preflight'),'Озвучка',items,selected,value => { preselectedVoice = value; },true);
+      if (!preselectedVoice && preferences.selected === 'native' &&
+          !items.some(item => item.id === desired) && selected.startsWith('native:')) {
+        preferences.voice = selected.slice('native:'.length);
+      }
+    });
+  }
   if (!media && !request && !$('screen').querySelector('iframe')) {
     const record = historyFor(current);
     pendingPosition ??= !record.completed && Number.isFinite(record.time) ? Math.max(0,record.time) : 0;
@@ -393,7 +419,9 @@ function mentalistFolderFile() {
   return localEpisodeFolders.get('mentalist')?.get(key(current));
 }
 function startPlayback() {
-  const choice = preferences.selected;
+  const [source,...parts] = (preselectedVoice || '').split(':');
+  const explicitVoice = parts.join(':');
+  const choice = source || preferences.selected;
   const file = choice === 'file' && mentalistFolderFile();
   if (file) {
     playMentalistFile(file,pendingPosition);
@@ -403,7 +431,7 @@ function startPlayback() {
     (choice === 'custom' && configuredSource()?.kind === 'video'))) {
     requestCinemaFullscreen($('screen'));
   }
-  launch(choice,pendingPosition);
+  launch(choice,pendingPosition,0,explicitVoice || undefined);
 }
 function screenAction(title,action,message) {
   const panel = make('div','screen-empty');
@@ -507,12 +535,13 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
     return;
   }
   if (id === 'custom' && !configuredSource()) { openSources('custom'); return; }
-  if (id === 'alloha' && !preferences.alloha) { openSources('alloha'); return; }
-  if (id !== 'vidlink') preferences.selected = id;
+  if (id === 'alloha' && !preferences.alloha) { openSources(); return; }
+  preferences.selected = id;
   pendingPosition = time;
   persist();
   clearMedia();
-  if (['native','endpoint','stremio','vidlink'].includes(id)) {
+  if ($('watch-preflight')) $('watch-preflight').hidden = true;
+  if (['native','endpoint','stremio'].includes(id)) {
     const controller = new AbortController();
     request = controller;
     const timeout = setTimeout(() => controller.abort(),15000);
@@ -521,28 +550,28 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
     $('source-status').textContent = loading;
     try {
       const show = {mazeId:116,imdb:externalRatingData.series.imdb};
-      if (id === 'vidlink') {
-        const url = await resolveVidLink(show,current,controller.signal,time);
-        if (request !== controller) return;
-        screenAction('Вернуться к нашему плееру',() => launch('native',time),'VidLink открывается в новой вкладке.');
-        const external = make('a','tonal','Открыть на VidLink');
-        external.href = url;
-        external.target = '_blank';
-        external.rel = 'noopener noreferrer';
-        $('screen').firstElementChild?.append(external);
-        $('source-status').textContent = 'VidLink · внешний плеер. Возможна реклама.';
-      } else {
-        const result = id === 'endpoint'
+      const result = id === 'endpoint'
           ? await resolveEpisodeEndpoint(show,current,controller.signal,choice)
           : id === 'stremio'
             ? await resolveStremio(show,current,controller.signal,choice)
-            : await resolveNative({...current,voice:preferences.voice,quality:preferences.quality},controller.signal);
-        if (request !== controller) return;
-        mountVideo(result.url,result.label || 'Общий источник',time,id,result.metadata,recoveryAttempt,result.combined,result.format,result.alternatives,{items:result.voices,selected:result.voice});
-        if (result.combined) $('episode-number').textContent = 'СЕЗОН 3 · ОБЪЕДИНЁННЫЙ ФИНАЛ 23–24';
+            : await resolveNative({...current,voice:choice ?? preferences.voice,quality:preferences.quality},controller.signal);
+      if (request !== controller) return;
+      if (result.kind === 'embed') {
+        $('screen').replaceChildren(createExternalVideoFrame(result.url,result.provider || 'Встроенный плеер'));
+        $('source-status').textContent = result.provider || 'Встроенный плеер';
+        return;
       }
+      if (id === 'native' && result.voice) preferences.voice = result.voice;
+      mountVideo(result.url,result.label || 'Общий источник',time,id,result.metadata,recoveryAttempt,result.combined,result.format,result.alternatives,{items:result.voices,selected:result.voice});
+      if (result.combined) $('episode-number').textContent = 'СЕЗОН 3 · ОБЪЕДИНЁННЫЙ ФИНАЛ 23–24';
     } catch (error) {
-      if (request === controller) playbackError(controller.signal.aborted ? 'Источник не ответил за 15 секунд.' : error.message);
+      if (request === controller) {
+        if (id === 'native' && choice == null && (stremioSource() || episodeEndpoint())) {
+          void launch(stremioSource() ? 'stremio' : 'endpoint',time);
+        } else if (id === 'stremio' && choice == null && episodeEndpoint()) {
+          void launch('endpoint',time);
+        } else playbackError(controller.signal.aborted ? 'Источник не ответил за 15 секунд.' : error.message);
+      }
     } finally {
       clearTimeout(timeout);
       if (request === controller) request = null;
@@ -585,12 +614,14 @@ function openSources(form = null) {
   setSelectValue('source-kind',source?.kind || 'video');
   $('source-url').value = source?.url || '';
   $('provider-list').replaceChildren(...mediaProviders.filter(provider => (provider.id !== 'endpoint' || episodeEndpoint()) &&
-    (provider.id !== 'stremio' || stremioSource())).map(provider => {
+    (provider.id !== 'stremio' || stremioSource()) &&
+    (integrationEditorAvailable() || !['custom','alloha'].includes(provider.id) ||
+      (provider.id === 'custom' ? configuredSource() : preferences.alloha))).map(provider => {
     const row = make('div','provider-item');
     row.append(make('strong',null,provider.title + (provider.id === preferences.selected ? ' · выбрано' : '')),make('p','muted',provider.detail));
     const action = make('button','tonal',provider.id === 'alloha' && preferences.alloha ? 'Открыть' : provider.action);
     action.onclick = () => {
-      if (provider.id === 'custom' || (provider.id === 'alloha' && !preferences.alloha)) {
+      if (integrationEditorAvailable() && ((provider.id === 'custom' && !configuredSource()) || (provider.id === 'alloha' && !preferences.alloha))) {
         showSourceForm(provider.id);
         return;
       }
@@ -600,7 +631,7 @@ function openSources(form = null) {
       launch(provider.id,time);
     };
     row.append(action);
-    if (provider.id === 'alloha' && preferences.alloha) {
+    if (integrationEditorAvailable() && provider.id === 'alloha' && preferences.alloha) {
       const change = make('button','text-action','Сменить ссылку');
       change.onclick = () => showSourceForm('alloha');
       row.append(change);
@@ -608,47 +639,48 @@ function openSources(form = null) {
     return row;
   }));
   openSheet('sources-dialog');
-  if (form) showSourceForm(form);
+  if (form && integrationEditorAvailable()) showSourceForm(form);
 }
 $('open-sources').onclick = () => openSources();
-$('settings-sources').onclick = () => { if (!window.konfolyLibrary?.openActiveSources()) openSources(); };
-$('episode-endpoint-url').value = episodeEndpoint();
-$('episode-endpoint-form').onsubmit = event => {
-  event.preventDefault();
-  const input = $('episode-endpoint-url');
-  const value = input.value.trim();
-  const address = value ? mediaAddress(value,1,1) : '';
-  if (value && !address) {
-    $('episode-endpoint-status').textContent = 'Нужен HTTPS-адрес API.';
-    input.focus();
-    return;
-  }
-  writeLocal(episodeEndpointKey,{url:address});
-  if (!address && preferences.selected === 'endpoint') {
-    preferences.selected = 'native';
-    persist();
-  }
-  $('episode-endpoint-status').textContent = address ? 'Адрес сохранён в этом браузере.' : 'Общий источник отключён.';
-};
-$('stremio-source-url').value = stremioSource();
-$('stremio-source-form').onsubmit = event => {
-  event.preventDefault();
-  const input = $('stremio-source-url');
-  const value = input.value.trim();
-  const address = value ? stremioManifestAddress(value) : '';
-  if (value && !address) {
-    $('stremio-source-status').textContent = 'Нужна HTTPS-ссылка на manifest.json.';
-    input.focus();
-    return;
-  }
-  writeLocal(stremioSourceKey,{url:address});
-  if (!address && preferences.selected === 'stremio') {
-    preferences.selected = 'native';
-    persist();
-  }
-  $('stremio-source-status').textContent = address ? 'Дополнение сохранено для всех сериалов в этом браузере.' :
-    'Дополнение отключено.';
-};
+if ($('episode-endpoint-form') && $('stremio-source-form')) {
+  $('episode-endpoint-url').value = episodeEndpoint();
+  $('episode-endpoint-form').onsubmit = event => {
+    event.preventDefault();
+    const input = $('episode-endpoint-url');
+    const value = input.value.trim();
+    const address = value ? mediaAddress(value,1,1) : '';
+    if (value && !address) {
+      $('episode-endpoint-status').textContent = 'Нужен HTTPS-адрес API.';
+      input.focus();
+      return;
+    }
+    writeLocal(episodeEndpointKey,{url:address});
+    if (!address && preferences.selected === 'endpoint') {
+      preferences.selected = 'native';
+      persist();
+    }
+    $('episode-endpoint-status').textContent = address ? 'Адрес сохранён в этом браузере.' : 'Общий источник отключён.';
+  };
+  $('stremio-source-url').value = stremioSource();
+  $('stremio-source-form').onsubmit = event => {
+    event.preventDefault();
+    const input = $('stremio-source-url');
+    const value = input.value.trim();
+    const address = value ? stremioManifestAddress(value) : '';
+    if (value && !address) {
+      $('stremio-source-status').textContent = 'Нужна HTTPS-ссылка на manifest.json.';
+      input.focus();
+      return;
+    }
+    writeLocal(stremioSourceKey,{url:address});
+    if (!address && preferences.selected === 'stremio') {
+      preferences.selected = 'native';
+      persist();
+    }
+    $('stremio-source-status').textContent = address ? 'Дополнение сохранено для всех сериалов в этом браузере.' :
+      'Дополнение отключено.';
+  };
+}
 for (const field of ['voice','quality']) $(field).onchange = event => {
   preferences[field] = event.target.value;
   persist();

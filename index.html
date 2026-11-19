@@ -8,11 +8,12 @@
 <script>
 if (!location.hash || location.hash === '#library') document.documentElement.dataset.startLibrary = '';
 </script>
-<link rel="stylesheet" href="style.css?v=41">
+<link rel="stylesheet" href="style.css?v=42">
 <script defer src="episodes.js?v=13"></script>
 <script defer src="episode-titles-ru.js?v=24"></script>
 <script defer src="importance.js?v=13"></script>
-<script defer src="providers.js?v=41"></script>
+<script defer src="integrations.js?v=42"></script>
+<script defer src="providers.js?v=42"></script>
 <script defer src="platform.js?v=30"></script>
 <script defer src="video-progress.js?v=34"></script>
 <script defer src="video-controls.js?v=19"></script>
@@ -25,9 +26,9 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <script defer src="series-data.js?v=41"></script>
 <script defer src="series-titles-ru.js?v=35"></script>
 <script defer src="series-importance.js?v=36"></script>
-<script defer src="series-metadata.js?v=41"></script>
-<script defer src="series-library.js?v=41"></script>
-<script defer src="app.js?v=41"></script>
+<script defer src="series-metadata.js?v=42"></script>
+<script defer src="series-library.js?v=42"></script>
+<script defer src="app.js?v=42"></script>
 </head>
 <body>
 <div id="snow-field" class="snow-field" aria-hidden="true" hidden></div>
@@ -42,11 +43,7 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <main id="content" tabindex="-1">
 <section id="library" class="page" hidden>
 <h1 class="page-title">Сериалы</h1>
-<div id="library-grid" class="library-grid">
-<a class="library-tile" href="#home"><span class="library-poster"><img src="assets/mentalist-poster.webp?v=20" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Менталист</strong><span class="muted">2008–2015 · Сезонов 7 · Серий 151</span></span></a>
-<a class="library-tile" href="#series/breaking-bad"><span class="library-poster"><img src="https://static.tvmaze.com/uploads/images/medium_portrait/501/1253519.jpg" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Во все тяжкие</strong><span class="muted">2008–2013 · Сезонов 5 · Серий 62</span></span></a>
-<a class="library-tile" id="library-interns" href="#series/interns"><span class="library-poster"><img src="assets/interns-poster.jpg" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Интерны</strong><span class="muted">2010–2016 · Сезонов 4 · Серий 279</span></span></a>
-</div>
+<div id="library-grid" class="library-grid" hidden></div>
 <section class="library-add-panel">
 <h2>Добавить сериал</h2>
 <form id="library-add-form" class="library-add">
@@ -92,6 +89,7 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <template id="watch-layout">
 <div class="section-title watch-heading"><div><p id="episode-number" class="eyebrow"></p><h1 id="episode-title" class="page-title"></h1><p id="episode-title-original" class="muted episode-original" lang="en" hidden></p></div><button id="open-sources" class="tonal">Источники</button></div>
 <button id="watch-continue" class="resume-action tonal" hidden>Продолжить просмотр</button>
+<div id="watch-preflight" class="watch-preflight" hidden></div>
 <div class="watch-stage"><canvas class="video-ambient" width="48" height="27" aria-hidden="true"></canvas><div id="screen" class="screen"></div></div>
 <div class="watch-status"><span id="source-status" role="status"></span><span id="quality-status"></span></div>
 <div class="watch-track-controls"><div id="watch-dub" hidden></div><div id="watch-audio" hidden></div></div>
@@ -104,10 +102,10 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <div class="settings-grid">
 <section class="settings-card"><h2>Оформление</h2><div class="select-field"><label for="theme">Тема</label><select id="theme"><option value="auto">Как в системе</option><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div><label class="switch-row"><input type="checkbox" id="new-year"> Новогодний режим</label></section>
 <section class="settings-card"><h2>Сюжет</h2><label class="switch-row"><input type="checkbox" id="spoilers"> Раскрывать спойлеры на странице серии</label><p class="muted">Блок «Сюжет и развязка» будет открыт по умолчанию.</p></section>
-<section class="settings-card"><h2>Просмотр</h2><button id="settings-sources" class="tonal">Настроить источники</button><p class="muted">Настройки сохраняются на этом устройстве.</p><p id="sync-status" class="muted" role="status">История сохраняется в этом браузере.</p></section>
+<section class="settings-card"><h2>Просмотр</h2><p class="muted">Настройки сохраняются на этом устройстве.</p><p id="sync-status" class="muted" role="status">История сохраняется в этом браузере.</p></section>
 </div>
-<details class="settings-advanced">
-<summary>Дополнительные настройки</summary>
+<div id="integration-settings"></div>
+<template id="integration-settings-layout">
 <div class="settings-grid">
 <section class="settings-card"><h2>Русские названия и логотипы</h2>
 <form id="kinopoisk-key-form" class="source-form">
@@ -138,7 +136,7 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <p id="stremio-source-status" class="muted" role="status"></p>
 </form></section>
 </div>
-</details>
+</template>
 </section>
 <footer>konfoly <a href="https://www.tvmaze.com/shows/116/the-mentalist" target="_blank" rel="noopener noreferrer">Каталог и кадры · TVmaze ↗</a></footer>
 </main>
