@@ -1,5 +1,6 @@
 const seriesMetadata = (() => {
   const keyName = 'konfoly-kinopoisk-api-key';
+  const tmdbKeyName = 'konfoly-tmdb-read-token';
   const maxAge = 14 * 86400000;
   const cached = new Map();
   const knownIds = {116:412344,169:404900,184:818185};
@@ -19,6 +20,65 @@ const seriesMetadata = (() => {
       for (const data of cached.values()) delete data.kpCheckedAt;
       return true;
     } catch { return false; }
+  }
+  function tmdbToken() {
+    try { return sessionStorage.getItem(tmdbKeyName) || ''; } catch { return ''; }
+  }
+  function setTmdbToken(value) {
+    try {
+      if (value) sessionStorage.setItem(tmdbKeyName,value);
+      else sessionStorage.removeItem(tmdbKeyName);
+      for (const data of cached.values()) delete data.tmdbCheckedAt;
+      return true;
+    } catch { return false; }
+  }
+  async function tmdbImages(show,signal,token) {
+    const request = async path => {
+      const response = await fetch('https://api.themoviedb.org/3/' + path,{
+        signal,credentials:'omit',redirect:'error',headers:{Authorization:'Bearer ' + token}
+      });
+      if (!response.ok) throw Error('TMDB не загрузил логотипы.');
+      return response.json();
+    };
+    let id = show.tmdbId;
+    if (!id && /^tt\d{5,12}$/.test(show.imdb?.id || '')) {
+      const data = await request('find/' + show.imdb.id + '?external_source=imdb_id');
+      if (data.tv_results?.length === 1) id = data.tv_results[0].id;
+    }
+    if (!Number.isInteger(id)) return [];
+    const data = await request('tv/' + id + '/images?include_image_language=ru,en,null');
+    const rank = {ru:0,en:1,null:2};
+    return (Array.isArray(data.logos) ? data.logos : [])
+      .filter(logo => /^\/[a-zA-Z0-9]+\.(png|svg)$/i.test(logo.file_path))
+      .sort((a,b) => (rank[a.iso_639_1] ?? 3) - (rank[b.iso_639_1] ?? 3) || b.vote_count - a.vote_count)
+      .slice(0,6).map(logo => 'https://image.tmdb.org/t/p/original' + logo.file_path);
+  }
+  const logoChecks = new Map();
+  function transparentLogo(address) {
+    if (address.startsWith('assets/')) return Promise.resolve(true);
+    if (!logoChecks.has(address)) {
+      logoChecks.set(address,new Promise(resolve => {
+        const logo = new Image();
+        const timer = setTimeout(() => resolve(false),5500);
+        function finish(result) { clearTimeout(timer); resolve(result); }
+        logo.crossOrigin = 'anonymous';
+        logo.onerror = () => finish(false);
+        logo.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 32;
+            const context = canvas.getContext('2d',{willReadFrequently:true});
+            context.drawImage(logo,0,0,32,32);
+            const {data} = context.getImageData(0,0,32,32);
+            let transparent = 0;
+            for (let pixel=3; pixel<data.length; pixel+=4) if (data[pixel] < 32) transparent++;
+            finish(transparent / (32 * 32) > .04);
+          } catch { finish(false); }
+        };
+        logo.src = address;
+      }));
+    }
+    return logoChecks.get(address);
   }
   function read(show) {
     if (!cached.has(show.id)) cached.set(show.id,readLocal(storageKey(show)));
@@ -110,7 +170,16 @@ const seriesMetadata = (() => {
     const data = read(show);
     const key = apiKey();
     const jobs = [];
-    if (!fresh(data.mazeCheckedAt) && show.mazeId && show.episodes) {
+    const token = tmdbToken();
+    if (token && !fresh(data.tmdbCheckedAt)) {
+      jobs.push((async () => {
+        const logos = await tmdbImages(show,signal,token);
+        if (signal.aborted) return;
+        save(show,{tmdbLogos:logos,tmdbCheckedAt:Date.now()});
+        onChange();
+      })());
+    }
+    if (!fresh(data.mazeCheckedAt) && show.mazeId && show.episodes && show.id !== 'interns') {
       jobs.push((async () => {
         const rows = await json('https://api.tvmaze.com/shows/' + show.mazeId + '/episodes',{signal});
         if (signal.aborted) return;
@@ -173,7 +242,11 @@ const seriesMetadata = (() => {
   function episode(show,item) {
     const data = read(show);
     const id = itemKey(item);
-    const kp = data.kp?.[id];
+    let kpId = id;
+    if (show.mazeId === 3391 && show.id !== 'interns') {
+      try { kpId = itemKey(providerEpisode(show,item)); } catch { kpId = ''; }
+    }
+    const kp = data.kp?.[kpId];
     const match = kp && (!kp.original || !item.title || /^Серия \d+$/.test(item.title) || normalize(kp.original) === normalize(item.title)) ? kp : null;
     const localTitle = localizedSeriesTitle(show,item);
     return {
@@ -233,5 +306,5 @@ const seriesMetadata = (() => {
     } finally { translator.destroy(); }
   }
 
-  return {apiKey,setApiKey,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();

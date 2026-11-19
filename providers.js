@@ -21,7 +21,7 @@ function embedAddress(id,season,episode) {
   return null;
 }
 function seriesNativeId(show) {
-  const known = {tt3398228:818185,tt0903747:404900,tt3032476:796660,tt1475582:502838};
+  const known = {tt1647423:501998,tt3398228:818185,tt0903747:404900,tt3032476:796660,tt1475582:502838};
   return show.mazeId === 184 ? 818185 : known[show.imdb?.id] || null;
 }
 
@@ -49,12 +49,12 @@ async function resolveNative({season,episode,voice,quality,kinopoiskId=412344}, 
   const candidates = quality === 'fullhd'
     ? ['mpegFullHdUrl','mpegHighUrl','mpegMediumUrl','hlsUrl']
     : ['mpegHighUrl','mpegMediumUrl','mpegFullHdUrl','hlsUrl'];
-  for (const item of items.slice(0,voice ? 1 : 3)) {
+  for (const item of items) {
     let media;
     try {
       media = await get('/video/' + encodeURIComponent(item.vkId));
     } catch (error) {
-      if (signal?.aborted || voice) throw error;
+      if (signal?.aborted) throw error;
       continue;
     }
     const seen = new Set();
@@ -127,7 +127,16 @@ function episodeEndpoint() {
   return readLocal(episodeEndpointKey).url || '';
 }
 
-async function resolveEpisodeEndpoint(show,item,signal) {
+function providerEpisode(show,item) {
+  if (show.mazeId !== 3391 || show.id === 'interns') return item;
+  const absolute = Number(/^Серия\s+(\d+)$/iu.exec(item.title || '')?.[1]);
+  const bounds = [60,120,181,279];
+  const index = bounds.findIndex(last => absolute > 0 && absolute <= last);
+  if (index < 0) throw Error('Номер этой серии не удалось сопоставить с источником.');
+  return {...item,season:index+1,episode:absolute-(bounds[index-1] || 0)};
+}
+async function resolveEpisodeEndpoint(show,item,signal,choice) {
+  item = providerEpisode(show,item);
   const address = mediaAddress(episodeEndpoint(),item.season,item.episode);
   if (!address) throw Error('Укажи общий видеоисточник в настройках.');
   const request = new URL(address);
@@ -140,9 +149,22 @@ async function resolveEpisodeEndpoint(show,item,signal) {
   if (response.status === 404 || response.status === 204) throw Error('В общем источнике нет этой серии.');
   if (!response.ok) throw Error('Общий источник недоступен.');
   const result = await response.json().catch(() => null);
-  const url = typeof result?.url === 'string' && mediaAddress(result.url,item.season,item.episode);
-  if (!url) throw Error('Общий источник не вернул HTTPS-ссылку на видео.');
-  return {url,format:result.format === 'hls' ? 'hls' : undefined};
+  const rows = Array.isArray(result?.streams) ? result.streams : [];
+  const options = [];
+  const addresses = new Set();
+  for (const row of [result,...rows].slice(0,60)) {
+    const url = typeof row?.url === 'string' && mediaAddress(row.url,item.season,item.episode);
+    if (!url || addresses.has(url)) continue;
+    addresses.add(url);
+    const label = typeof row.voice === 'string' ? row.voice.trim().slice(0,120) : '';
+    options.push({url,format:row.format === 'hls' ? 'hls' : undefined,label,
+      choice:String(options.length),choiceLabel:label || 'Поток ' + (options.length+1)});
+  }
+  if (!options.length) throw Error('Общий источник не вернул HTTPS-ссылку на видео.');
+  const stream = choice == null ? options[0] : options.find(option => option.choice === choice);
+  if (!stream) throw Error('Этот поток больше недоступен. Открой источник заново.');
+  return {...stream,alternatives:choice == null ? options.slice(1) : [],
+    voices:options.map(option => ({id:option.choice,label:option.choiceLabel})),voice:stream.choice};
 }
 
 const stremioSourceKey = 'konfoly-stremio-source-v1';
@@ -171,6 +193,7 @@ function canUseStremio(show) {
 }
 
 async function resolveStremio(show,item,signal,choice) {
+  item = providerEpisode(show,item);
   const imdb = show.imdb?.id;
   if (!canUseStremio(show)) throw Error('Для этого сериала нет IMDb ID, который нужен дополнению.');
   const address = stremioManifestAddress(stremioSource());
@@ -403,7 +426,8 @@ function renderStreamChoices(container,name,items=[],selected,onChange) {
   }
   if (items.some(item => item.id === selected)) select.value = selected;
   select.onchange = () => onChange(select.value);
-  const label = make('label','watch-track-field',name);
-  label.append(select);
-  container.append(label);
+  const field = make('div','watch-track-field');
+  field.append(make('label',null,name),select);
+  container.append(field);
+  window.enhanceKinosalSelect?.(select);
 }

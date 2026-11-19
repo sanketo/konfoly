@@ -8,26 +8,26 @@
 <script>
 if (!location.hash || location.hash === '#library') document.documentElement.dataset.startLibrary = '';
 </script>
-<link rel="stylesheet" href="style.css?v=40">
+<link rel="stylesheet" href="style.css?v=41">
 <script defer src="episodes.js?v=13"></script>
 <script defer src="episode-titles-ru.js?v=24"></script>
 <script defer src="importance.js?v=13"></script>
-<script defer src="providers.js?v=40"></script>
+<script defer src="providers.js?v=41"></script>
 <script defer src="platform.js?v=30"></script>
 <script defer src="video-progress.js?v=34"></script>
 <script defer src="video-controls.js?v=19"></script>
 <script defer src="video-ambient.js?v=23"></script>
 <script defer src="player-ui.js?v=22"></script>
 <script defer src="telegram-sync.js?v=15"></script>
-<script defer src="select-ui.js?v=16"></script>
+<script defer src="select-ui.js?v=41"></script>
 <script defer src="ratings-data.js?v=21"></script>
 <script defer src="ratings.js?v=29"></script>
-<script defer src="series-data.js?v=40"></script>
+<script defer src="series-data.js?v=41"></script>
 <script defer src="series-titles-ru.js?v=35"></script>
 <script defer src="series-importance.js?v=36"></script>
-<script defer src="series-metadata.js?v=40"></script>
-<script defer src="series-library.js?v=40"></script>
-<script defer src="app.js?v=40"></script>
+<script defer src="series-metadata.js?v=41"></script>
+<script defer src="series-library.js?v=41"></script>
+<script defer src="app.js?v=41"></script>
 </head>
 <body>
 <div id="snow-field" class="snow-field" aria-hidden="true" hidden></div>
@@ -45,7 +45,7 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <div id="library-grid" class="library-grid">
 <a class="library-tile" href="#home"><span class="library-poster"><img src="assets/mentalist-poster.webp?v=20" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Менталист</strong><span class="muted">2008–2015 · Сезонов 7 · Серий 151</span></span></a>
 <a class="library-tile" href="#series/breaking-bad"><span class="library-poster"><img src="https://static.tvmaze.com/uploads/images/medium_portrait/501/1253519.jpg" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Во все тяжкие</strong><span class="muted">2008–2013 · Сезонов 5 · Серий 62</span></span></a>
-<a class="library-tile" href="#series/interns"><span class="library-poster"><img src="assets/interns-poster.jpg" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Интерны</strong><span class="muted">2010–2016 · Сезонов 4 · Серий 279</span></span></a>
+<a class="library-tile" id="library-interns" href="#series/interns"><span class="library-poster"><img src="assets/interns-poster.jpg" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Интерны</strong><span class="muted">2010–2016 · Сезонов 4 · Серий 279</span></span></a>
 </div>
 <section class="library-add-panel">
 <h2>Добавить сериал</h2>
@@ -105,17 +105,28 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <section class="settings-card"><h2>Оформление</h2><div class="select-field"><label for="theme">Тема</label><select id="theme"><option value="auto">Как в системе</option><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div><label class="switch-row"><input type="checkbox" id="new-year"> Новогодний режим</label></section>
 <section class="settings-card"><h2>Сюжет</h2><label class="switch-row"><input type="checkbox" id="spoilers"> Раскрывать спойлеры на странице серии</label><p class="muted">Блок «Сюжет и развязка» будет открыт по умолчанию.</p></section>
 <section class="settings-card"><h2>Просмотр</h2><button id="settings-sources" class="tonal">Настроить источники</button><p class="muted">Настройки сохраняются на этом устройстве.</p><p id="sync-status" class="muted" role="status">История сохраняется в этом браузере.</p></section>
+</div>
+<details class="settings-advanced">
+<summary>Дополнительные настройки</summary>
+<div class="settings-grid">
 <section class="settings-card"><h2>Русские названия и логотипы</h2>
 <form id="kinopoisk-key-form" class="source-form">
 <label>Ключ Kinopoisk API Unofficial <input id="kinopoisk-key" type="password" autocomplete="off" placeholder="Ключ API"></label>
 <p class="muted">Загружает русские названия, описания и логотипы, когда они есть в каталоге. Ключ действует в этой вкладке. Очисти поле и сохрани, чтобы отключить новые запросы.</p>
 <button class="tonal" type="submit">Сохранить ключ</button>
 <p id="kinopoisk-key-status" class="muted" role="status"></p>
-</form></section>
+</form>
+<form id="tmdb-token-form" class="source-form">
+<label>Токен чтения TMDB <input id="tmdb-token" type="password" autocomplete="off"></label>
+<p class="muted">TMDB добавляет логотипы сериалов. Сначала ищем русский вариант. Токен действует в этой вкладке.</p>
+<button type="submit" class="tonal">Сохранить токен</button>
+<p id="tmdb-token-status" class="muted" role="status"></p>
+</form>
+<p class="muted" lang="en">This product uses the <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> API but is not endorsed or certified by TMDB.</p></section>
 <section class="settings-card"><h2>Общий видеоисточник</h2>
 <form id="episode-endpoint-form" class="source-form">
 <label>HTTPS-адрес API <input id="episode-endpoint-url" type="text" inputmode="url" placeholder="https://…" autocomplete="off"></label>
-<p class="muted">Один адрес на все сериалы. Сайт передаёт IMDb, TVmaze, сезон и серию. Ответ API должен содержать прямой HTTPS-адрес в поле <code>url</code>. Очисти поле, чтобы отключить источник.</p>
+<p class="muted">Один адрес на все сериалы. Сайт передаёт IMDb, TVmaze, сезон и серию. API принимает номер серии и возвращает прямое видео. Для нескольких озвучек можно вернуть <code>streams</code> с полями <code>url</code> и <code>voice</code>.</p>
 <button type="submit" class="tonal">Сохранить адрес</button>
 <p id="episode-endpoint-status" role="status" class="muted"></p>
 </form></section>
@@ -127,6 +138,7 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <p id="stremio-source-status" class="muted" role="status"></p>
 </form></section>
 </div>
+</details>
 </section>
 <footer>konfoly <a href="https://www.tvmaze.com/shows/116/the-mentalist" target="_blank" rel="noopener noreferrer">Каталог и кадры · TVmaze ↗</a></footer>
 </main>

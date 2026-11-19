@@ -485,8 +485,8 @@ function mountVideo(url, label, resumeTime, source, metadata = '', recoveryAttem
       const time = video.currentTime > 0 ? video.currentTime : resumeTime;
       if (source === 'native') {
         preferences.voice = choice;
-        launch('native',time);
-      } else launch('stremio',time,0,choice);
+        launch('native',time,0,choice);
+      } else launch(source,time,0,choice);
     });
   }
   renderStreamChoices($('watch-audio'),'Аудиодорожка');
@@ -533,7 +533,7 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
         $('source-status').textContent = 'VidLink · внешний плеер. Возможна реклама.';
       } else {
         const result = id === 'endpoint'
-          ? await resolveEpisodeEndpoint(show,current,controller.signal)
+          ? await resolveEpisodeEndpoint(show,current,controller.signal,choice)
           : id === 'stremio'
             ? await resolveStremio(show,current,controller.signal,choice)
             : await resolveNative({...current,voice:preferences.voice,quality:preferences.quality},controller.signal);

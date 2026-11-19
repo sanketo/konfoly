@@ -1,6 +1,9 @@
 (() => {
   const fields = new Map();
-  for (const select of document.querySelectorAll('.select-field select')) {
+  let serial = 0;
+  function enhance(select) {
+    if (select.hidden) return;
+    if (!select.id) select.id = 'select-field-' + ++serial;
     const field = select.parentElement;
     const label = field.querySelector('label');
     const control = document.createElement('details');
@@ -22,27 +25,35 @@
     panel.className = 'select-options';
     panel.setAttribute('role','group');
     panel.setAttribute('aria-labelledby',label.id);
-    const options = Array.from(select.options, (option,index) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = option.textContent;
-      button.disabled = option.disabled;
-      button.addEventListener('click',() => {
-        if (select.selectedIndex !== index) {
-          select.selectedIndex = index;
-          select.dispatchEvent(new Event('change',{bubbles:true}));
-        }
-        control.open = false;
-        if (!field.closest('dialog') || field.closest('dialog').open) summary.focus();
-      });
-      panel.append(button);
-      return button;
-    });
+    let options = [];
+    let signature;
     function refresh() {
+      const entries = Array.from(select.options);
+      const next = JSON.stringify(entries.map(option => [option.value,option.textContent,option.disabled]));
+      if (next !== signature) {
+        signature = next;
+        options = entries.map((option,index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = option.textContent;
+          button.disabled = option.disabled;
+          button.addEventListener('click',() => {
+            control.open = false;
+            if (select.selectedIndex !== index) {
+              select.selectedIndex = index;
+              select.dispatchEvent(new Event('change',{bubbles:true}));
+            }
+            if ((!field.closest('dialog') || field.closest('dialog').open) && summary.isConnected) summary.focus();
+          });
+          return button;
+        });
+        panel.replaceChildren(...options);
+      }
       value.textContent = select.selectedOptions[0]?.textContent || '';
       options.forEach((button,index) => button.setAttribute('aria-pressed',index === select.selectedIndex));
     }
     function toggleOptions(event) {
+      if (event.key !== 'Escape') refresh();
       const enabled = options.filter(button => !button.disabled);
       const index = enabled.indexOf(document.activeElement);
       if (event.key === 'Escape' && control.open) {
@@ -71,13 +82,15 @@
     control.append(summary,panel);
     field.append(control);
     select.hidden = true;
-    fields.set(select.id,{control,refresh});
+    if (!select.closest('.watch-track-field')) fields.set(select.id,refresh);
     refresh();
   }
+  for (const field of document.querySelectorAll('.select-field select')) enhance(field);
   document.addEventListener('pointerdown',event => {
-    for (const {control} of fields.values()) {
+    for (const control of document.querySelectorAll('.select-control[open]')) {
       if (!control.contains(event.target)) control.open = false;
     }
   });
-  window.refreshKinosalSelect = id => fields.get(id)?.refresh();
+  window.enhanceKinosalSelect = enhance;
+  window.refreshKinosalSelect = id => fields.get(id)?.();
 })();

@@ -5,6 +5,12 @@ window.konfolyLibrary = (() => {
   };
   const libraryKey = 'konfoly-library-v1';
   const imported = readImports();
+  const isInterns = show => show.mazeId === interns.mazeId || show.imdb?.id === interns.imdb.id;
+  const importedInterns = imported.find(isInterns);
+  if (importedInterns) Object.assign(importedInterns,{
+    official:interns.official,tmdbId:interns.tmdbId,hue:interns.hue
+  });
+  const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show))];
   const shows = new Map([mentalist,breakingBad,interns,...imported].map(show => [show.id,show]));
   const showPath = show => show === mentalist ? '#home' : '#series/' + show.id;
   const seasonPath = (show,season) => showPath(show) + '/season/' + (season || 'all');
@@ -143,10 +149,26 @@ window.konfolyLibrary = (() => {
     const seasons = show.episodes ? new Set(show.episodes.map(item => item.season)).size : 7;
     return [includeYears && show.years,'Сезонов ' + seasons,'Серий ' + count].filter(Boolean).join(' · ');
   }
-  function showCard(show) {
-    const tile = link(undefined,showPath(show),'library-tile');
+  function showHue(show) {
+    if (show === mentalist) return 22;
+    if (Number.isFinite(show.hue)) return show.hue;
+    return [...show.id].reduce((value,char) => (value * 31 + char.charCodeAt(0)) % 360,0);
+  }
+  function showCard(show,add) {
+    const tile = add ? make('button','library-tile') : link(undefined,showPath(show),'library-tile');
+    if (add) {
+      tile.type = 'button';
+      tile.onclick = () => add(tile);
+    }
     const copy = make('span','library-tile-copy');
-    copy.append(make('strong',null,seriesDisplayTitle(show)),make('span','muted',caption(show)));
+    const facts = show.preview ? show.years : caption(show);
+    copy.append(make('strong',null,seriesDisplayTitle(show)));
+    if (facts) copy.append(make('span','muted',facts));
+    if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
+    tile.style.setProperty('--tile-hue',showHue(show));
+    if (show.hue == null && show.image) void posterHue(show.image).then(hue => {
+      if (hue != null) tile.style.setProperty('--tile-hue',hue);
+    });
     tile.append(poster(show),copy);
     return tile;
   }
@@ -162,7 +184,7 @@ window.konfolyLibrary = (() => {
     return /^https:\/\/static\.tvmaze\.com\//.test(image?.medium || '') ? image.medium : '';
   }
   async function importShow(raw,signal) {
-    const known = [...shows.values()].find(show => show.mazeId === raw.id ||
+    const known = libraryShows().find(show => show.mazeId === raw.id ||
       (raw.externals?.imdb && show.imdb?.id === raw.externals.imdb));
     if (known) return known;
     const episodes = (await tvmaze('shows/' + raw.id + '/episodes',signal))
@@ -185,7 +207,8 @@ window.konfolyLibrary = (() => {
   function renderLibrary() {
     const grid = $('library-grid');
     for (const card of grid.querySelectorAll('[data-imported]')) card.remove();
-    grid.append(...imported.map(show => {
+    $('library-interns').hidden = !!importedInterns;
+    grid.append(...imported.filter(show => !isInterns(show) || show === importedInterns).map(show => {
       const card = showCard(show);
       card.dataset.imported = '';
       return card;
@@ -222,33 +245,34 @@ window.konfolyLibrary = (() => {
       if (!query) return;
       results.replaceChildren();
       const normalized = query.toLocaleLowerCase('ru');
-      const local = [...shows.values()].filter(show =>
+      const local = libraryShows().filter(show =>
         [seriesDisplayTitle(show),show.title,show.original].some(title => title?.toLocaleLowerCase('ru').includes(normalized)));
-      if (local.length) {
-        results.append(...local.map(showCard));
-        status.textContent = 'Уже в каталоге';
-        return;
-      }
+      results.append(...local.map(show => showCard(show)));
       status.textContent = 'Ищем в TVmaze…';
       void run(async signal => {
         const matches = await tvmaze('search/shows?q=' + encodeURIComponent(query),signal);
         if (signal.aborted) return;
-        status.textContent = matches.length ? 'Выбери сериал, чтобы добавить его в этот браузер.' :
-          'Ничего не найдено. Попробуй оригинальное название.';
-        for (const {show} of matches.slice(0,8)) {
-          const button = make('button','tonal',show.name + (show.premiered ? ' · ' + show.premiered.slice(0,4) : ''));
-          button.type = 'button';
-          button.onclick = () => {
+        const seen = new Set(local.map(show => show.id));
+        for (const {show} of matches.slice(0,12)) {
+          const known = libraryShows().find(item => item.mazeId === show.id ||
+            (show.externals?.imdb && item.imdb?.id === show.externals.imdb));
+          const id = known?.id || 'tvmaze-' + show.id;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          if (known) { results.append(showCard(known)); continue; }
+          const preview = {id,title:show.name,years:show.premiered?.slice(0,4),
+            image:mazeImage(show.image),preview:true};
+          results.append(showCard(preview,button => {
             button.disabled = true;
             status.textContent = 'Загружаем эпизоды…';
-            void run(async (signal) => {
+            void run(async signal => {
               const added = await importShow(show,signal);
               if (!signal.aborted) location.hash = showPath(added);
             },'Не удалось добавить сериал. Проверь соединение и повтори попытку.').finally(() => { button.disabled = false; });
-          };
-          results.append(button);
+          }));
         }
-      },'TVmaze сейчас недоступен. Попробуй ещё раз.');
+        status.textContent = seen.size ? 'Результаты поиска' : 'Ничего не найдено. Попробуй оригинальное название.';
+      },local.length ? 'Показаны совпадения из каталога. TVmaze сейчас недоступен.' : 'TVmaze сейчас недоступен. Попробуй ещё раз.');
     };
     cleanup = () => { session.abort(); operation?.abort(); };
   }
@@ -275,6 +299,15 @@ window.konfolyLibrary = (() => {
       const stored = seriesMetadata.setApiKey(key);
       status.textContent = !stored ? 'Браузер запретил сохранение ключа.' :
         key ? 'Ключ сохранён для этой вкладки. Открой сериал для загрузки метаданных.' : 'Новые запросы к Кинопоиску отключены.';
+    };
+    $('tmdb-token').value = seriesMetadata.tmdbToken();
+    $('tmdb-token-form').onsubmit = event => {
+      event.preventDefault();
+      const token = $('tmdb-token').value.trim();
+      const valid = !token || /^[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+){2}$/.test(token);
+      $('tmdb-token-status').textContent = !valid ? 'Вставь токен чтения TMDB из настроек API.' :
+        !seriesMetadata.setTmdbToken(token) ? 'Не удалось сохранить токен в этой вкладке.' :
+        token ? 'Токен сохранён для этой вкладки.' : 'Новые запросы к TMDB отключены.';
     };
   }
   function hydrate(show,update,status) {
@@ -392,23 +425,35 @@ window.konfolyLibrary = (() => {
     const hero = make('div','hero');
     const copy = make('div','hero-copy');
     const heading = make('div','hero-heading');
-    const title = make('h1');
-    function renderTitle() {
+    const title = make('h1','page-title',seriesDisplayTitle(show));
+    let titleRevision = 0;
+    async function renderTitle() {
+      const revision = ++titleRevision;
       const data = seriesMetadata.read(show);
-      const address = data.kpLogo || show.logo || data.commonsLogo;
-      title.className = address ? 'show-wordmark show-wordmark-stacked' : 'page-title';
-      title.textContent = '';
-      if (!address) { title.textContent = seriesDisplayTitle(show); return; }
-      const logo = make('img');
-      logo.src = address;
-      logo.alt = seriesDisplayTitle(show);
-      logo.width = 369;
-      logo.height = 220;
-      logo.onerror = () => {
-        if (show.logo && logo.getAttribute('src') !== show.logo) logo.src = show.logo;
-        else { title.className = 'page-title'; title.textContent = seriesDisplayTitle(show); }
-      };
-      title.append(logo);
+      const name = seriesDisplayTitle(show);
+      if (!title.firstElementChild) title.textContent = name;
+      const tmdbLogos = Array.isArray(data.tmdbLogos) ? data.tmdbLogos : [];
+      const addresses = [...new Set([data.kpLogo,...tmdbLogos,show.logo,data.commonsLogo].filter(address => typeof address === 'string' && address))];
+      for (const address of addresses) {
+        if (!(await seriesMetadata.transparentLogo(address))) continue;
+        if (revision !== titleRevision) return;
+        if (title.firstElementChild?.getAttribute('src') === address) {
+          title.firstElementChild.alt = name;
+          return;
+        }
+        const logo = make('img');
+        logo.src = address;
+        logo.alt = name;
+        logo.width = 369;
+        logo.height = 220;
+        title.className = 'show-wordmark show-wordmark-stacked';
+        title.replaceChildren(logo);
+        return;
+      }
+      if (revision === titleRevision) {
+        title.className = 'page-title';
+        title.textContent = name;
+      }
     }
     renderTitle();
     heading.append(title);
@@ -841,13 +886,13 @@ window.konfolyLibrary = (() => {
             const kinopoiskId = seriesNativeId(show) || await seriesMetadata.kinopoiskId(show,controller.signal);
             if (!kinopoiskId) throw Error('Для этого сериала не найден ID каталога видео.');
             const voice = choice ?? saved.nativeVoice;
-            try { result = await resolveNative({...item,kinopoiskId,voice,quality:preferences.quality},controller.signal); }
+            try { result = await resolveNative({...providerEpisode(show,item),kinopoiskId,voice,quality:preferences.quality},controller.signal); }
             catch (error) {
               if (choice || !voice || controller.signal.aborted) throw error;
-              result = await resolveNative({...item,kinopoiskId,quality:preferences.quality},controller.signal);
+              result = await resolveNative({...providerEpisode(show,item),kinopoiskId,quality:preferences.quality},controller.signal);
             }
           } else if (id === 'endpoint') {
-            result = await resolveEpisodeEndpoint(show,item,controller.signal);
+            result = await resolveEpisodeEndpoint(show,item,controller.signal,choice);
           } else if (id === 'stremio') {
             result = await resolveStremio(show,item,controller.signal,choice);
           } else {
@@ -919,7 +964,11 @@ window.konfolyLibrary = (() => {
     if (show.official) {
       const official = external('Открыть на PREMIER',show.official);
       official.className = 'tonal';
-      sourceActions.append(official);
+      let officialPath = 'https://rutube.ru/metainfo/tv/891104/';
+      try { officialPath += 'season' + providerEpisode(show,item).season + '/'; } catch {}
+      const rutube = external('Открыть на RUTUBE',officialPath);
+      rutube.className = 'tonal';
+      sourceActions.append(official,rutube);
     }
     sourceHeading.after(sourceActions);
     updateControls();
@@ -1044,10 +1093,10 @@ window.konfolyLibrary = (() => {
             if (pixels[i+3] < 200 || delta < 36 || max < 62) continue;
             const sector = max === r ? (g-b)/delta : max === g ? (b-r)/delta + 2 : (r-g)/delta + 4;
             const bin = Math.round(sector * 2 + 12) % 12;
-            weights[bin] += delta;
+            weights[bin] += delta * delta * (255 - min) / 255;
           }
           const best = Math.max(...weights);
-          done(best ? weights.indexOf(best) * 30 : null);
+          done(best ? [28,58,91,120,142,164,191,219,255,280,326,353][weights.indexOf(best)] : null);
         } catch { done(null); }
       };
       image.src = url;
@@ -1062,8 +1111,7 @@ window.konfolyLibrary = (() => {
     if (!show) {
       delete root.dataset.series;
     } else {
-      const hash = [...show.id].reduce((value,char) => (value * 31 + char.charCodeAt(0)) % 360,0);
-      root.style.setProperty('--show-hue',show === mentalist ? '22' : String(show.hue ?? hash));
+      root.style.setProperty('--show-hue',String(showHue(show)));
       root.style.setProperty('--show-chroma',show === mentalist ? '.15' : '.11');
       root.dataset.series = show.id;
       if (show !== mentalist && show.hue == null && /^https:\/\/static\.tvmaze\.com\//.test(show.image || '')) {

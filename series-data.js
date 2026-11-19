@@ -84,7 +84,7 @@ const breakingBad = {
 
 // IMDb/Kinopoisk grouping. The original TV broadcast used another season split.
 const interns = {
-  id:'interns',
+  id:'interns',mazeId:3391,tmdbId:32651,hue:356,
   title:'Интерны',
   original:'Interny',
   language:'Russian',
