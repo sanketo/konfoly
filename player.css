@@ -35,7 +35,7 @@
 .cinema-volume-range::-moz-range-thumb{width:9px;height:9px;background:#fff;border-radius:50%;border:0}
 .cinema-boost {
  position:absolute;top:22px;left:50%;transform:translateX(-50%) translateY(-8px);opacity:0;
- display:flex;align-items:center;gap:9px;padding:8px 13px;border:1px solid #ffdadc30;border-radius:var(--r-pill);
+ display:flex;align-items:baseline;gap:9px;padding:8px 13px;border:1px solid #ffdadc30;border-radius:var(--r-pill);
  background:#1c171cba;color:#fff5f5;box-shadow:0 4px 14px #0003;backdrop-filter:blur(8px);
  font-size:1rem;font-weight:800;line-height:1.15;transition:opacity .15s,transform .15s;
 }

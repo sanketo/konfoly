@@ -4,7 +4,7 @@
  --surface:#151315; --container:#211e22; --high:#2e292e; --text:#f4edf0; --muted:#cbbfc5;
  --primary:#ffb3b1; --on-primary:#5c171c; --tonal:#4c2d35; --on-tonal:#ffdadc;
  --outline:#a7959e; --error:#ffb4ab; --key:#f9db9a; --on-key:#352100; --scrim:#000a;
- --home-glow:#9439531a;
+ --home-glow:#9439531a; --search-glow:#ff78a842;
  --r-small:12px; --r-medium:20px; --r-large:26px; --r-pill:999px; --space:clamp(16px,3vw,40px);
  --spring:cubic-bezier(.2,.9,.3,1.18); --safe-bottom:max(env(safe-area-inset-bottom),var(--tg-bottom,0px));
  --safe-top:max(env(safe-area-inset-top),var(--tg-top,0px));
@@ -14,7 +14,7 @@
  color-scheme:light;
  --surface:#fff7f7; --container:#f7e9ec; --high:#efdee3; --text:#261c20; --muted:#59474f;
  --primary:#913e46; --on-primary:#fff; --tonal:#ffdadc; --on-tonal:#562029;
- --home-glow:#dd72921c;
+ --home-glow:#dd72921c; --search-glow:#d9447438;
  --outline:#836f78; --error:#9d2119; --key:#f6dda6; --on-key:#352100;
 }
 *{box-sizing:border-box}
@@ -314,7 +314,7 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 .library-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items:start;
+  grid-auto-rows:1fr;
   gap: 12px;
 }
 .library-grid { margin-block: 20px 28px; }
@@ -368,6 +368,7 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 }
 .library-saved-card {
   display:grid;
+  grid-template-rows:1fr auto;
   min-width:0;
   overflow:hidden;
   border-radius:var(--r-medium);
@@ -376,6 +377,15 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 .library-saved-card .library-tile { background:transparent; border-radius:0; }
 .library-saved-card .library-tile:focus-visible { outline-offset:-3px; }
 .library-saved-card .library-tile-copy { padding-block-end:4px; }
+.library-saved-card .library-tile-copy :is(strong,.muted) {
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  overflow:hidden;
+}
+@media(max-width:440px){
+  .library-saved-card .library-tile-copy .muted{-webkit-line-clamp:3}
+}
 .library-card-actions {
   display:flex;
   justify-content:flex-end;
@@ -546,7 +556,7 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
   inset:0;
   z-index:-2;
   border-radius:inherit;
-  box-shadow:0 0 clamp(24px,5vw,64px) 5px color-mix(in srgb,var(--primary) 11%,transparent);
+  box-shadow:0 0 clamp(24px,5vw,64px) 5px var(--search-glow);
   pointer-events:none;
 }
 .library-tile-original{font-size:.82rem;color:var(--muted)}

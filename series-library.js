@@ -260,9 +260,15 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const copy = make('span','library-tile-copy');
     const facts = [show.preview ? showYears(show) : caption(show),seriesMetadata.ageRating(show)].filter(Boolean).join(' · ');
     const name = seriesDisplayTitle(show);
-    copy.append(make('strong',null,name));
+    const title = make('strong',null,name);
+    if (themeElement) title.title = name;
+    copy.append(title);
     if (show.preview && name !== show.title) copy.append(make('span','library-tile-original',show.title));
-    if (facts) copy.append(make('span','muted',facts));
+    if (facts) {
+      const metadata = make('span','muted',facts);
+      if (themeElement) metadata.title = facts;
+      copy.append(metadata);
+    }
     if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
     const themed = themeElement || tile;
     themed.style.setProperty('--tile-hue',showHue(show));
