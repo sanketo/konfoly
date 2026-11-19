@@ -5,6 +5,7 @@ import {readLocal,writeLocal} from '../storage.js';
 import {integrationOrigins,integrationSettings,matchesIntegrationOrigin} from '../integrations.js';
 import {seriesMetadata} from '../series-metadata.js';
 import {cachedEpisodes,rememberEpisodes} from '../catalog-episodes.js';
+import {loadCinemetaSeries,searchCinemeta} from '../cinemeta.js';
 
 test('imported Interns and the four-season edition map only on provider lookup', () => {
   const item = {season:4,episode:1,title:'Серия 61'};
@@ -69,16 +70,13 @@ test('episode localization matches exact external IDs and skips ambiguous labels
   assert.equal(refresh.mock.callCount(),1);
 });
 
-test('catalog uses shippable episode data and bounds the cache for other series', (context) => {
+test('the catalog bounds the cache for previously loaded series', (context) => {
   const saved = new Map();
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
     getItem:key => saved.get(key),setItem:(key,value) => saved.set(key,value)
   }});
   context.after(() => { delete globalThis.localStorage; });
-  const episodes = cachedEpisodes(38753).episodes;
-  assert.equal(episodes.filter(item => item.season === 1).length,8);
-  assert.equal(episodes.filter(item => item.season === 2).length,7);
-  assert.equal(cachedEpisodes(184).episodes.length,76);
+  assert.equal(cachedEpisodes(38753).episodes,undefined);
   for (let id=100;id<110;id++) rememberEpisodes(id,[{season:1,episode:1,title:'Pilot',synopsis:'Large synopsis'}]);
   assert.equal(cachedEpisodes(109).episodes[0].title,'Pilot');
   assert.equal(cachedEpisodes(109).episodes[0].synopsis,undefined);
@@ -98,4 +96,27 @@ test('secondary catalog searches English and accepts only entries with a TVmaze 
   });
   const matches = await seriesMetadata.catalogSearch('example',new AbortController().signal);
   assert.deepEqual(matches,[{id:38201,name:'Example',localized:'Пример',externals:{imdb:'tt1029384'}}]);
+});
+
+test('independent catalog searches series and accepts only correctly numbered episodes', async (context) => {
+  const imdb = 'tt12121212';
+  context.mock.method(globalThis,'fetch',async address => {
+    const url = new URL(address);
+    assert.equal(url.hostname,'v3-cinemeta.strem.io');
+    if (url.pathname.startsWith('/catalog/')) {
+      assert.equal(decodeURIComponent(url.pathname),'/catalog/series/top/search=Название & продолжение.json');
+      return Response.json({metas:[{id:imdb,type:'series',name:'Example'},{id:'tt55555555',type:'movie',name:'Film'}]});
+    }
+    return Response.json({meta:{id:imdb,type:'series',videos:[
+      {id:imdb+':0:1',season:0,episode:1,name:'Trailer'},
+      {id:'tt55555555:1:1',season:1,episode:1,name:'Different series'},
+      {id:imdb+':1:1',season:1,episode:1,name:'Pilot',thumbnail:'https://episodes.metahub.space/pilot.jpg'}
+    ]}});
+  });
+  const signal = new AbortController().signal;
+  const found = await searchCinemeta('Название & продолжение',signal);
+  assert.deepEqual(found.map(show => show.externals.imdb),[imdb]);
+  const {episodes} = await loadCinemetaSeries(imdb,signal);
+  assert.deepEqual(episodes.map(episode => episode.title),['Pilot']);
+  assert.equal(episodes[0].image,'https://episodes.metahub.space/pilot.jpg');
 });

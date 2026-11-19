@@ -1,6 +1,7 @@
 import {canonicalEpisode, mentalistCatalog, seriesIdentity} from './series-config.js';
 import {breakingBad, interns, seriesEditorial} from './series-data.js';
 import {cachedEpisodes,rememberEpisodes} from './catalog-episodes.js';
+import {loadCinemetaSeries,searchCinemeta,validImdb} from './cinemeta.js';
 import {seriesMetadata} from './series-metadata.js';
 import {readLocal, writeLocal} from './storage.js';
 import {$, make} from './dom.js';
@@ -41,6 +42,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   const progressKey = show => 'konfoly-progress:' + show.id;
   const historyKeyFor = show => 'konfoly-history:' + show.id;
   const episodeKey = item => item.season + ':' + item.episode;
+  const catalogKey = show => show.id.startsWith('imdb-') ? show.imdb.id : show.mazeId || show.imdb?.id;
   const formatEpisode = item => 'Сезон ' + item.season + ' · Серия ' + item.episode;
   const selectedEpisodes = new Map();
   const seriesDisplayTitle = show => {
@@ -72,8 +74,9 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   function readImports() {
     const entries = readLocal(libraryKey);
     if (!Array.isArray(entries)) return [];
-    const catalog = entries.filter(show => /^tvmaze-\d+$/.test(show?.id) &&
-      Number.isInteger(show.mazeId) && typeof show.title === 'string');
+    const catalog = entries.filter(show => typeof show?.title === 'string' &&
+      ((Number.isInteger(show.mazeId) && show.id === 'tvmaze-' + show.mazeId) ||
+        (validImdb(show.imdb?.id) && show.id === 'imdb-' + show.imdb.id)));
     if (catalog.some(show => Array.isArray(show.episodes))) persistImports(catalog);
     return catalog;
   }
@@ -120,7 +123,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const show = parts && shows.get(parts[1]);
     if (!show || show === mentalist) return parts ? {page:'library'} : null;
     if (!show.episodes) {
-      const cached = cachedEpisodes(show.mazeId);
+      const cached = cachedEpisodes(catalogKey(show));
       if (cached.episodes) {
         show.episodes = cached.episodes;
         if (Date.now() - cached.savedAt > 86400000) refreshEpisodeLists.add(show);
@@ -236,26 +239,41 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   function mazeImage(image) {
     return /^https:\/\/static\.tvmaze\.com\//.test(image?.medium || '') ? image.medium : '';
   }
-  async function fetchEpisodes(mazeId,signal) {
+  async function fetchMazeEpisodes(mazeId,signal) {
     const episodes = (await tvmaze('shows/' + mazeId + '/episodes',signal))
       .filter(item => Number.isInteger(item.season) && Number.isInteger(item.number))
-      .map(item => ({season:item.season,episode:item.number,title:item.name,mazeId:item.id,airdate:item.airdate,image:mazeImage(item.image),runtime:item.runtime,synopsis:seriesMetadata.plain(item.summary)}))
-      .sort((a,b) => a.season - b.season || a.episode - b.episode);
-    if (!episodes.length) throw new Error('Нет пронумерованных серий');
-    if (!signal.aborted) rememberEpisodes(mazeId,episodes);
+      .map(item => ({season:item.season,episode:item.number,title:item.name,mazeId:item.id,airdate:item.airdate,
+        image:mazeImage(item.image),runtime:item.runtime,synopsis:seriesMetadata.plain(item.summary)}));
+    if (!episodes.length) throw Error('Нет пронумерованных серий');
     return episodes;
   }
-  async function importShow(raw,signal) {
-    const known = libraryShows().find(show => show.mazeId === raw.id ||
-      (raw.externals?.imdb && show.imdb?.id === raw.externals.imdb));
+  async function fetchEpisodes(show,signal) {
+    const jobs = [];
+    if (show.mazeId) jobs.push(fetchMazeEpisodes(show.mazeId,signal).then(episodes => ({episodes})));
+    if (show.imdb?.id) jobs.push(loadCinemetaSeries(show.imdb.id,signal));
+    const {episodes,poster,description,years} = await Promise.any(jobs);
+    episodes.sort((a,b) => a.season - b.season || a.episode - b.episode);
+    if (!signal.aborted) {
+      show.image ||= poster;
+      show.description ||= plainText(description);
+      show.years ||= years;
+      rememberEpisodes(catalogKey(show),episodes);
+    }
+    return episodes;
+  }
+  function matchesCatalog(show,raw) {
+    return (Number.isInteger(raw.id) && show.mazeId === raw.id) ||
+      (validImdb(raw.externals?.imdb) && show.imdb?.id === raw.externals.imdb);
+  }
+  function importShow(raw,id) {
+    const known = libraryShows().find(show => matchesCatalog(show,raw));
     if (known) return known;
-    const episodes = await fetchEpisodes(raw.id,signal);
-    if (signal.aborted) throw signal.reason;
     const years = [raw.premiered?.slice(0,4),raw.ended?.slice(0,4)].filter(Boolean);
     const show = {
-      id:'tvmaze-' + raw.id,mazeId:raw.id,title:raw.name,language:raw.language,years:[...new Set(years)].join('–'),
-      image:mazeImage(raw.image),description:plainText(raw.summary),source:'https://www.tvmaze.com/shows/' + raw.id,
-      imdb:/^tt\d+$/.test(raw.externals?.imdb || '') ? {id:raw.externals.imdb} : null,episodes
+      id,mazeId:raw.id,title:raw.name,language:raw.language,years:[...new Set(years)].join('–') || raw.years,
+      image:mazeImage(raw.image) || raw.poster,description:plainText(raw.summary),
+      source:raw.id ? 'https://www.tvmaze.com/shows/' + raw.id : '',
+      imdb:validImdb(raw.externals?.imdb) ? {id:raw.externals.imdb} : null
     };
     const next = [...imported,show];
     show.sessionOnly = !persistImports(next);
@@ -327,27 +345,29 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         const previews = [...local];
         const rawMatches = new Map();
         function addResult(show,localized) {
-          const known = libraryShows().find(item => item.mazeId === show.id ||
-            (show.externals?.imdb && item.imdb?.id === show.externals.imdb));
-          const id = known?.id || 'tvmaze-' + show.id;
-          const preview = known || {id,title:show.name,years:show.premiered?.slice(0,4),
-            language:show.language,image:mazeImage(show.image),mazeId:show.id,preview:true};
+          const known = libraryShows().find(item => matchesCatalog(item,show));
+          const current = previews.find(item => matchesCatalog(item,show));
+          const id = known?.id || current?.id || (Number.isInteger(show.id) ? 'tvmaze-' + show.id : 'imdb-' + show.externals.imdb);
+          const previous = rawMatches.get(id) || {};
+          const raw = {...previous,...Object.fromEntries(Object.entries(show).filter(([,value]) => value != null && value !== ''))};
+          raw.externals = {imdb:[previous.externals?.imdb,show.externals?.imdb].find(validImdb)};
+          rawMatches.set(id,raw);
+          const preview = known || {id,title:raw.name,years:raw.premiered?.slice(0,4) || raw.years,
+            language:raw.language,image:mazeImage(raw.image) || raw.poster,mazeId:raw.id,
+            imdb:raw.externals.imdb ? {id:raw.externals.imdb} : null,preview:true};
           if (localized) seriesMetadata.rememberSearchTitle(preview,localized);
-          const previous = rawMatches.get(id);
-          if (!previous || Object.hasOwn(show,'premiered')) rawMatches.set(id,show);
           if (indexedShows.includes(known)) {
-            const image = mazeImage(show.image);
+            const image = preview.image || mazeImage(raw.image) || raw.poster;
             const cardPoster = cards.get(id)?.querySelector('.library-poster');
             const imageChanged = image && image !== known.image;
             known.image ||= image;
             known.language ||= show.language;
             known.description ||= plainText(show.summary);
-            if (!known.imdb && /^tt\d+$/.test(show.externals?.imdb || '')) known.imdb = {id:show.externals.imdb};
+            if (!known.imdb && raw.externals.imdb) known.imdb = {id:raw.externals.imdb};
             if (imageChanged && cardPoster && !cardPoster.firstElementChild) cardPoster.replaceWith(poster(known));
           }
           if (seen.has(id)) {
-            if (!known && previous && rawMatches.get(id) === show) {
-              const current = previews.find(item => item.id === id);
+            if (!known && current) {
               Object.assign(current,preview);
               const card = cards.get(id);
               if (preview.image) card.querySelector('.library-poster')?.replaceWith(poster(preview));
@@ -367,14 +387,9 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             results.append(card);
             return;
           }
-          const card = showCard(preview,button => {
-            button.disabled = true;
-            status.textContent = 'Загружаем эпизоды…';
-            void run(async signal => {
-              const added = await importShow(rawMatches.get(id),signal);
-              if (!signal.aborted) location.hash = showPath(added);
-            },() => { status.textContent = 'Не удалось добавить сериал. Проверь соединение и повтори попытку.'; },12000)
-              .finally(() => { button.disabled = false; });
+          const card = showCard(preview,() => {
+            const added = importShow(rawMatches.get(id),id);
+            location.hash = showPath(added);
           });
           cards.set(id,card);
           results.append(card);
@@ -400,7 +415,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           if (seen.size) status.textContent = 'Результаты поиска';
           await seriesMetadata.searchTitles(previews,signal,updateTitle).catch(() => {});
           if (signal.aborted) return;
-          const missing = previews.filter(show => !/\p{Script=Cyrillic}/u.test(seriesDisplayTitle(show))).slice(0,6);
+          const missing = previews.filter(show => show.mazeId && !/\p{Script=Cyrillic}/u.test(seriesDisplayTitle(show))).slice(0,6);
           await Promise.allSettled(missing.map(async show => {
             const names = await tvmaze('shows/' + show.mazeId + '/akas',signal);
             const russian = names.filter(item => /\p{Script=Cyrillic}/u.test(item.name || ''));
@@ -417,7 +432,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           for (const entry of entries) addResult(entry,entry.localized);
           if (seen.size) status.textContent = 'Результаты поиска';
         }
-        const outcomes = await Promise.allSettled([loadMatches(),loadLocalizedMatches()]);
+        async function loadCinemetaMatches() {
+          const entries = await searchCinemeta(query,signal);
+          if (signal.aborted) return;
+          for (const entry of entries) addResult(entry);
+          if (seen.size) status.textContent = 'Результаты поиска';
+        }
+        const outcomes = await Promise.allSettled([loadMatches(),loadLocalizedMatches(),loadCinemetaMatches()]);
         if (signal.aborted) return;
         status.textContent = seen.size ? 'Результаты поиска' : outcomes.every(item => item.status === 'rejected')
           ? 'Источники поиска недоступны. Попробуй ещё раз.' : 'Сериал не найден';
@@ -1362,9 +1383,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         loading.after(retry);
       }
       const timer = setTimeout(() => { abort(); showFailure(); },8000);
-      void fetchEpisodes(route.show.mazeId,controller.signal).then(episodes => {
+      void fetchEpisodes(route.show,controller.signal).then(episodes => {
         if (controller.signal.aborted) return;
         route.show.episodes = episodes;
+        if (imported.includes(route.show)) persistImports(imported);
         renderCurrentRoute();
       }).catch(showFailure).finally(() => {
         clearTimeout(timer);
@@ -1381,7 +1403,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       renderShow(route.show);
       if (refreshEpisodeLists.delete(route.show)) {
         const signal = metadataSession.signal;
-        void fetchEpisodes(route.show.mazeId,signal).then(episodes => {
+        void fetchEpisodes(route.show,signal).then(episodes => {
           if (signal.aborted || episodes.length < route.show.episodes.length) return;
           route.show.episodes = episodes;
           renderCurrentRoute();

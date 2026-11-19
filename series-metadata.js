@@ -443,10 +443,12 @@ const seriesMetadata = (() => {
     const localTitle = localizedSeriesTitle(show,item);
     const translatedTitle = match?.title || official?.title || (localTitle !== item.title ? localTitle : '') ||
       data.tmdbEpisodeTitles?.[id] || data.wikiEpisodeTitles?.[id] || data.translated?.[id]?.title;
+    const synopsisSource = data.maze?.[id] ? 'TVmaze' : item.synopsisSource || 'TVmaze';
     return {
       title:translatedTitle || item.title,
       description:match?.description || official?.description || data.translated?.[id]?.description || data.maze?.[id] || item.synopsis || '',
-      source:match?.description ? 'Кинопоиск' : official?.description ? official.source : data.translated?.[id]?.description ? 'Машинный перевод · TVmaze' : 'TVmaze',
+      source:match?.description ? 'Кинопоиск' : official?.description ? official.source : data.translated?.[id]?.description ?
+        'Машинный перевод · ' + synopsisSource : synopsisSource,
       translated:!!translatedTitle || /\p{Script=Cyrillic}/u.test(item.title || '')
     };
   }
@@ -504,7 +506,7 @@ const seriesMetadata = (() => {
           changed = true;
         }
         const summary = data.maze?.[id] || item.synopsis;
-        if (!titlesOnly && summary && info.source === 'TVmaze' && !/\p{Script=Cyrillic}/u.test(summary)) {
+        if (!titlesOnly && summary && ['TVmaze','Cinemeta'].includes(info.source) && !/\p{Script=Cyrillic}/u.test(summary)) {
           next.description = text(await translator.translate(summary,{signal}));
           changed = true;
         }

@@ -3,6 +3,7 @@ import {basename, dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
 import {allowedOrigins, telegramSdk} from '../integrations.js';
+import {cinemetaOrigin, cinemetaImages} from '../cinemeta.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const out = resolve(root,'dist');
@@ -12,10 +13,10 @@ const sourcePolicy = [
   "script-src 'self' " + sdk.origin + sdk.pathname,
   "style-src 'self'",
   "worker-src 'self' blob:",
-  "img-src 'self' data: blob: https://static.tvmaze.com https://*.wikimedia.org https://image.tmdb.org https://avatars.mds.yandex.net https://avatars.yandex.net https://st.kp.yandex.net https://kinopoiskapiunofficial.tech " + allowedOrigins.image.join(' '),
+  "img-src 'self' data: blob: https://static.tvmaze.com https://*.wikimedia.org https://image.tmdb.org https://avatars.mds.yandex.net https://avatars.yandex.net https://st.kp.yandex.net https://kinopoiskapiunofficial.tech " + [...cinemetaImages,...allowedOrigins.image].join(' '),
   "media-src 'self' blob: " + allowedOrigins.media.join(' '),
   "connect-src 'self' https://api.tvmaze.com https://*.wikidata.org https://*.wikipedia.org https://*.wikimedia.org https://api.themoviedb.org https://kinopoiskapiunofficial.tech " +
-    allowedOrigins.connect.join(' '),
+    [cinemetaOrigin,...allowedOrigins.connect].join(' '),
   'frame-src ' + (allowedOrigins.frame.join(' ') || "'none'")
 ].map(value => value.trim()).join('; ');
 
