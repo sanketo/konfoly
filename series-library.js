@@ -2,6 +2,7 @@ import {canonicalEpisode, mentalistCatalog, seriesIdentity} from './series-confi
 import {breakingBad, interns, seriesEditorial} from './series-data.js';
 import {cachedEpisodes,rememberEpisodes} from './catalog-episodes.js';
 import {loadCinemetaSeries,searchCinemeta,validImdb} from './cinemeta.js';
+import {posterSources,tvmazePoster} from './series-posters.js';
 import {loadWikiEpisodes} from './wiki-episodes.js';
 import {seriesMetadata} from './series-metadata.js';
 import {readLocal, writeLocal} from './storage.js';
@@ -110,16 +111,32 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     element.rel = 'noopener noreferrer';
     return element;
   }
+  function showPosterSources(show) {
+    const identity = seriesIdentity(show);
+    const editorial = seriesEditorial[show.mazeId ?? identity?.mazeId];
+    return [...new Set([
+      ...posterSources(editorial?.posterOriginal),
+      ...posterSources(show.image || editorial?.image,show.imdb?.id || identity?.imdbId)
+    ])];
+  }
+  function loadPoster(image,addresses,onMissing) {
+    let index = 0;
+    function next() {
+      const address = addresses[index++];
+      if (address) image.src = address;
+      else onMissing();
+    }
+    image.addEventListener('error',next);
+    next();
+  }
   function poster(show) {
     const element = make('div','library-poster');
-    if (!show.image) { element.textContent = show.title; return element; }
     const image = make('img');
-    image.src = show.image;
     image.alt = '';
     image.loading = 'lazy';
     image.decoding = 'async';
-    image.onerror = () => { element.textContent = show.title; };
     element.append(image);
+    loadPoster(image,showPosterSources(show),() => { element.textContent = show.title; });
     return element;
   }
   function findEpisode(show,season,episode) {
@@ -329,7 +346,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const years = [raw.premiered?.slice(0,4),raw.ended?.slice(0,4)].filter(Boolean);
     const show = {
       id,mazeId:raw.id,title:raw.name,language:raw.language,years:[...new Set(years)].join('–') || raw.years,
-      image:mazeImage(raw.image) || raw.poster,description:plainText(raw.summary),
+      image:tvmazePoster(raw.image) || raw.poster,description:plainText(raw.summary),
       source:raw.id ? 'https://www.tvmaze.com/shows/' + raw.id : '',
       imdb:validImdb(raw.externals?.imdb) ? {id:raw.externals.imdb} : null
     };
@@ -460,11 +477,11 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           raw.externals = {imdb:[previous.externals?.imdb,show.externals?.imdb].find(validImdb)};
           rawMatches.set(id,raw);
           const preview = known || {id,title:raw.name,years:raw.premiered?.slice(0,4) || raw.years,
-            language:raw.language,image:mazeImage(raw.image) || raw.poster,mazeId:raw.id,
+            language:raw.language,image:tvmazePoster(raw.image) || raw.poster,mazeId:raw.id,
             imdb:raw.externals.imdb ? {id:raw.externals.imdb} : null,preview:true};
           if (localized) seriesMetadata.rememberSearchTitle(preview,localized);
           if (indexedShows.includes(known)) {
-            const image = preview.image || mazeImage(raw.image) || raw.poster;
+            const image = preview.image || tvmazePoster(raw.image) || raw.poster;
             const cardPoster = cards.get(id)?.querySelector('.library-poster');
             const imageChanged = image && image !== known.image;
             known.image ||= image;
@@ -808,21 +825,25 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const artwork = make('div','hero-poster');
     let renderedImage;
     function updateArtwork() {
-      const address = show.image || '';
-      if (address === renderedImage) return;
-      renderedImage = address;
-      if (!address) {
-        artwork.replaceChildren(poster(show));
-        return;
-      }
+      const addresses = showPosterSources(show);
+      const signature = addresses.join('\n');
+      if (signature === renderedImage) return;
+      renderedImage = signature;
+      artwork.style.removeProperty('--poster-art');
       const image = make('img','poster');
-      image.src = address;
       image.alt = 'Постер сериала «' + show.title + '»';
       image.width = 620;
       image.height = 930;
       image.fetchPriority = 'high';
-      artwork.style.setProperty('--poster-art','url(' + JSON.stringify(address) + ')');
       artwork.replaceChildren(image);
+      image.onload = () => {
+        if (artwork.firstElementChild === image) {
+          artwork.style.setProperty('--poster-art','url(' + JSON.stringify(image.currentSrc || image.src) + ')');
+        }
+      };
+      loadPoster(image,addresses,() => {
+        if (artwork.firstElementChild === image) artwork.replaceChildren(make('div','library-poster',show.title));
+      });
     }
     hero.append(copy,artwork);
 
@@ -1460,6 +1481,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   }
   const posterColors = new Map();
   function posterHue(url) {
+    url = posterSources(url).at(-1) || url;
     if (posterColors.has(url)) return posterColors.get(url);
     const sample = new Promise(resolve => {
       const image = new Image();

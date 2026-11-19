@@ -10,7 +10,7 @@ const breakingBad = {
   "original": "Breaking Bad",
   "years": "2008–2013",
   "genre": "Криминальная драма",
-  "image": "https://static.tvmaze.com/uploads/images/medium_portrait/501/1253519.jpg",
+  "image": "https://static.tvmaze.com/uploads/images/original_untouched/501/1253519.jpg",
   "description": "Узнав о тяжёлом диагнозе, школьный учитель химии Уолтер Уайт объединяется с бывшим учеником Джесси Пинкманом. Попытка обеспечить семью втягивает их в преступный мир Альбукерке.",
   "source": "https://www.tvmaze.com/shows/169/breaking-bad/episodeguide",
   "imdb": {
@@ -109,13 +109,14 @@ const seriesEditorial = {
     source:'https://paramountglobalcontent.com/title/avatar-the-last-airbender',label:'Paramount'
   },
   38753:{title:'Аватар: Легенда об Аанге',original:'Avatar: The Last Airbender',years:'2024',seasonCount:2,episodeCount:15,ageRating:'TV-PG (США)',
-    image:'assets/avatar-2024-poster.webp',imdb:{id:'tt9018736'},
+    image:'assets/avatar-2024-poster.webp',posterOriginal:'https://static.tvmaze.com/uploads/images/original_untouched/633/1582667.jpg',imdb:{id:'tt9018736'},
     description:'Катара и Сокка находят во льдах Аанга, последнего мага воздуха. Пока принц Зуко ищет Аватара, трое друзей отправляются в путь, чтобы Аанг научился управлять всеми стихиями и смог остановить войну.',
     source:'https://www.netflix.com/title/80237957',label:'Netflix'},
   83073:{title:'Аватар: Семь убежищ',original:'Avatar: Seven Havens',years:'2026',ageRating:'PG (Австралия)'},
-  44776:{title:'Фонари',original:'Lanterns',years:'2026',logo:'assets/lanterns-logo.png',ageRating:'TV-MA (США)'},
+  44776:{title:'Фонари',original:'Lanterns',years:'2026',logo:'assets/lanterns-logo.png',ageRating:'TV-MA (США)',
+    image:'https://static.tvmaze.com/uploads/images/original_untouched/637/1592971.jpg',imdb:{id:'tt26545992'}},
   184:{title:'Конь БоДжек',original:'BoJack Horseman',years:'2014–2020',seasonCount:6,episodeCount:76,
-    image:'assets/bojack-poster.webp',imdb:{id:'tt3398228'},
+    image:'assets/bojack-poster.webp',posterOriginal:'https://static.tvmaze.com/uploads/images/original_untouched/405/1012627.jpg',imdb:{id:'tt3398228'},
     description:'БоДжек, бывшая звезда ситкома девяностых, хочет вернуть карьеру и нанимает писательницу Диану Нгуен для работы над мемуарами. Вспоминая прошлое, он пытается разобраться, почему отталкивает людей, которые ему близки.',
     source:'https://www.netflix.com/title/70300800',label:'Netflix'},
   2178:{title:'Охотники',original:'Hunters',years:'2016',seasonCount:1,episodeCount:13,ageRating:'18+',episodes:Object.fromEntries([
@@ -124,7 +125,7 @@ const seriesEditorial = {
     'Обещание','Наша система','Телеграф','Делая вид, что видишь будущее','Новая священная земля'
   ].map((title,index) => ['1:' + (index+1),{title}]))},
   164:{title:'Банши',original:'Banshee',years:'2013–2016',seasonCount:4,episodeCount:38,imdb:{id:'tt2017109'},ageRating:'18+',
-    image:'https://static.tvmaze.com/uploads/images/medium_portrait/504/1260183.jpg',
+    image:'https://static.tvmaze.com/uploads/images/original_untouched/504/1260183.jpg',
     description:'Бывший заключённый присваивает имя шерифа Лукаса Худа и занимает его место в небольшом городе в Пенсильвании. Там живёт Кэрри, его бывшая сообщница, а люди из их прошлого ищут их обоих.',
     source:'https://www.tvmaze.com/shows/164/banshee',label:'TVmaze',episodes:{
     '1:1':{

@@ -8,6 +8,7 @@ import {cachedEpisodes,rememberEpisodes} from '../catalog-episodes.js';
 import {loadCinemetaSeries,searchCinemeta} from '../cinemeta.js';
 import {loadAppleAgeRating} from '../series-age-ratings.js';
 import {seekTimeAtPointer} from '../video-controls.js';
+import {posterSources,tvmazePoster} from '../series-posters.js';
 
 test('imported Interns and the four-season edition map only on provider lookup', () => {
   const item = {season:4,episode:1,title:'Серия 61'};
@@ -226,4 +227,18 @@ test('the timeline hover uses the slider travel and clamps to the episode bounds
   assert.equal(seekTimeAtPointer(2526,506,1012),1263);
   assert.equal(seekTimeAtPointer(2526,1012,1012),2526);
   assert.equal(seekTimeAtPointer(Infinity,50,1012),null);
+});
+
+test('poster URLs prefer originals and upgrade artwork saved by older versions', () => {
+  const medium = 'https://static.tvmaze.com/uploads/images/medium_portrait/501/1253519.jpg';
+  const original = 'https://static.tvmaze.com/uploads/images/original_untouched/501/1253519.jpg';
+  const small = 'https://images.metahub.space/poster/small/tt0434665/img';
+  const large = 'https://images.metahub.space/poster/large/tt0434665/img';
+  const fallback = 'https://images.metahub.space/poster/medium/tt0434665/img';
+  assert.equal(tvmazePoster({original,medium}),original);
+  assert.equal(tvmazePoster({medium}),medium);
+  assert.deepEqual(posterSources(medium),[original,medium]);
+  assert.deepEqual(posterSources(small,'tt0434665'),[large,fallback,small]);
+  assert.deepEqual(posterSources('assets/mentalist-poster.webp'),['assets/mentalist-poster.webp']);
+  assert.deepEqual(posterSources('', 'unknown'),[]);
 });
