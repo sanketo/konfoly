@@ -41,6 +41,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   });
   const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show)),...indexedShows];
   const shows = new Map([mentalist,breakingBad,interns,...indexedShows,...imported].map(show => [show.id,show]));
+  const searchPreviews = new Map();
   const showPath = show => show === mentalist ? '#home' : '#series/' + show.id;
   const seasonPath = (show,season) => showPath(show) + '/season/' + (season || 'all');
   const watchPath = (show,item) => showPath(show) + '/' + item.season + '/' + item.episode;
@@ -157,7 +158,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (deepLink) hash = 'series/' + deepLink.slice(1).join('/');
     else if ((boot && !start) || hash === 'library' || hash === 'library/search') return {page:'library',focusSearch:hash === 'library/search'};
     const parts = /^series\/([a-z0-9-]+)(?:\/season\/(all|\d+)|\/(\d+)\/(\d+))?$/.exec(hash);
-    const show = parts && shows.get(parts[1]);
+    const show = parts && (shows.get(parts[1]) || searchPreviews.get(parts[1]));
     if (!show || show === mentalist) return parts ? {page:'library'} : null;
     if (!show.episodes) {
       const cached = cachedEpisodes(catalogKey(show));
@@ -193,7 +194,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     writeLocal(activeKey,active);
   }
   function activeSeries() {
-    const show = shows.get(active?.id);
+    const show = shows.get(active?.id) || searchPreviews.get(active?.id);
     return show === mentalist ? null : show;
   }
   function activeEpisode(show) {
@@ -255,14 +256,14 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const years = showYears(show);
     const age = seriesMetadata.ageRating(show);
     const facts = make('span','library-card-facts');
-    for (const [value,label] of [
-      [years,years ? 'Годы выхода: ' + years : 'Годы выхода не указаны'],
-      [age.replace(/ \([^)]*\)$/,''),age ? 'Возрастной рейтинг: ' + age : 'Возрастной рейтинг не указан'],
-      [seasons ? 'Сез. ' + seasons : 'Сез. —',seasons ? 'Сезонов: ' + seasons : 'Число сезонов не указано'],
-      [count ? 'Сер. ' + count : 'Сер. —',count ? 'Серий: ' + count : 'Число серий не указано']
+    for (const [label,value] of [
+      ['Годы',years],['Сезоны',seasons],['Серии',count],['Возраст',age]
     ]) {
-      const field = make('span',null,value || '—');
-      field.title = label;
+      if (!value) continue;
+      const field = make('span','library-card-fact');
+      const text = make('span',null,label === 'Возраст' ? value.replace(/ \([^)]*\)$/,'') : value);
+      text.title = String(value);
+      field.append(make('span',null,label),text);
       facts.append(field);
     }
     return facts;
@@ -273,22 +274,21 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (Number.isFinite(seriesIdentity(show)?.hue)) return seriesIdentity(show).hue;
     return [...show.id].reduce((value,char) => (value * 31 + char.charCodeAt(0)) % 360,0);
   }
-  function showCard(show,add,themeElement) {
-    const tile = add ? make('button','library-tile') : link(undefined,showPath(show),'library-tile');
-    if (add) {
-      tile.type = 'button';
-      tile.onclick = () => add(tile);
-    }
+  function showCard(show,themeElement,saved=false) {
+    const tile = link(undefined,showPath(show),'library-tile');
     const copy = make('span','library-tile-copy');
-    const facts = [show.preview ? showYears(show) : caption(show),seriesMetadata.ageRating(show)].filter(Boolean).join(' · ');
     const name = seriesDisplayTitle(show);
     const title = make('strong',null,name);
-    if (themeElement) title.title = name;
+    if (saved) title.title = name;
     copy.append(title);
     if (show.preview && name !== show.title) copy.append(make('span','library-tile-original',show.title));
-    if (themeElement) copy.append(savedCardFacts(show));
-    else if (facts) copy.append(make('span','muted',facts));
-    if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
+    if (saved) {
+      const metadata = savedCardFacts(show);
+      if (metadata.childElementCount) copy.append(metadata);
+    } else {
+      const facts = [show.preview ? showYears(show) : caption(show),seriesMetadata.ageRating(show)].filter(Boolean).join(' · ');
+      if (facts) copy.append(make('span','muted',facts));
+    }
     const themed = themeElement || tile;
     themed.style.setProperty('--tile-hue',showHue(show));
     if (show.hue == null && !Number.isFinite(seriesIdentity(show)?.hue) && show.image) void posterHue(show.image).then(hue => {
@@ -365,22 +365,23 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     return (Number.isInteger(raw.id) && show.mazeId === raw.id) ||
       (validImdb(raw.externals?.imdb) && imdb === raw.externals.imdb);
   }
-  function importShow(raw,id) {
-    const known = libraryShows().find(show => matchesCatalog(show,raw));
-    if (known) return known;
+  function searchPreview(raw,id) {
     const years = [raw.premiered?.slice(0,4),raw.ended?.slice(0,4)].filter(Boolean);
-    const show = {
+    return {
       id,mazeId:raw.id,title:raw.name,language:raw.language,years:[...new Set(years)].join('–') || raw.years,
       image:tvmazePoster(raw.image) || raw.poster,description:plainText(raw.summary),
       source:raw.id ? 'https://www.tvmaze.com/shows/' + raw.id : '',
-      imdb:validImdb(raw.externals?.imdb) ? {id:raw.externals.imdb} : null
+      imdb:validImdb(raw.externals?.imdb) ? {id:raw.externals.imdb} : null,preview:true
     };
-    if (raw.imdbScore != null) seriesMetadata.rememberImdbRating(show,raw.imdbScore);
+  }
+  function savePreview(show) {
+    show.preview = false;
     const next = [...imported,show];
     show.sessionOnly = !persistImports(next);
     imported.push(show);
     shows.set(show.id,show);
-    return show;
+    searchPreviews.delete(show.id);
+    return !show.sessionOnly;
   }
   function renderLibrary(focusSearch) {
     const grid = $('library-grid');
@@ -394,7 +395,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         cardRatings.get(entry.target)?.();
       }
     }) : null;
-    function cardScore(show) {
+    function cardScore(show,card) {
       const source = show.imdb?.id ? show : {...show,imdb:{id:seriesIdentity(show)?.imdbId}};
       const rating = make('span','library-card-rating');
       const value = make('strong');
@@ -402,9 +403,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const getRating = () => show === mentalist ? externalRatingData.series.imdb : seriesMetadata.imdbRating(source);
       const update = () => {
         const score = getRating()?.score;
-        const formatted = score == null ? '—' : score.toFixed(1).replace('.',',');
+        const formatted = score == null ? '' : score.toFixed(1).replace('.',',');
         value.textContent = formatted;
-        rating.title = score == null ? 'Оценка IMDb не указана' : 'IMDb ' + formatted + ' из 10';
+        rating.hidden = score == null;
+        rating.title = formatted ? 'IMDb ' + formatted + ' из 10' : '';
       };
       update();
       if (getRating()?.score != null || !validImdb(source.imdb?.id)) return rating;
@@ -415,8 +417,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         void requestedRatings.get(show.id).then(update);
       };
       if (ratingObserver) {
-        cardRatings.set(rating,load);
-        ratingObserver.observe(rating);
+        cardRatings.set(card,load);
+        ratingObserver.observe(card);
       } else load();
       return rating;
     }
@@ -468,8 +470,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         };
         if (show.id === focusId) focusButton = favorite;
         const actions = make('div','library-card-actions');
-        actions.append(cardScore(show),favorite,remove);
-        card.append(showCard(show,null,card),actions);
+        actions.append(cardScore(show,card),favorite,remove);
+        card.append(showCard(show,card,true),actions);
         return card;
       });
       grid.replaceChildren(...cards);
@@ -483,11 +485,22 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     }
     renderSavedGrid();
     function searchCard(show) {
-      if (isSaved(show,catalogStates()[show.id],readLocal(pinnedKey))) return showCard(show);
-      return showCard(show,() => {
-        saveCatalogState(show,{});
-        location.hash = showPath(show);
-      });
+      const card = make('div','library-search-card');
+      const add = make('button','library-search-add tonal','Добавить в каталог');
+      add.type = 'button';
+      const markSaved = () => {
+        add.textContent = 'В каталоге';
+        add.disabled = true;
+      };
+      if (isSaved(show,catalogStates()[show.id],readLocal(pinnedKey))) markSaved();
+      add.onclick = () => {
+        const saved = show.preview ? savePreview(show) : saveCatalogState(show,{});
+        markSaved();
+        announce(seriesDisplayTitle(show) + ' — добавлено в каталог.',saved);
+        renderSavedGrid();
+      };
+      card.append(showCard(show,card),add);
+      return card;
     }
     const form = $('library-add-form');
     const input = form.querySelector('input');
@@ -518,6 +531,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       operation?.abort();
       operation = null;
       const query = input.value.trim();
+      searchPreviews.clear();
       results.replaceChildren();
       status.textContent = '';
       if (query.length < 2) return;
@@ -540,9 +554,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           const raw = {...previous,...Object.fromEntries(Object.entries(show).filter(([,value]) => value != null && value !== ''))};
           raw.externals = {imdb:[previous.externals?.imdb,show.externals?.imdb].find(validImdb)};
           rawMatches.set(id,raw);
-          const preview = known || {id,title:raw.name,years:raw.premiered?.slice(0,4) || raw.years,
-            language:raw.language,image:tvmazePoster(raw.image) || raw.poster,mazeId:raw.id,
-            imdb:raw.externals.imdb ? {id:raw.externals.imdb} : null,preview:true};
+          const preview = known || searchPreview(raw,id);
+          if (raw.imdbScore != null && seriesMetadata.imdbRating(preview)?.score == null) {
+            seriesMetadata.rememberImdbRating(preview,raw.imdbScore);
+          }
           if (localized) seriesMetadata.rememberSearchTitle(preview,localized);
           if (indexedShows.includes(known)) {
             const image = preview.image || tvmazePoster(raw.image) || raw.poster;
@@ -563,23 +578,15 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
               const facts = copy?.querySelector('.muted');
               const previewFacts = [preview.years,seriesMetadata.ageRating(preview)].filter(Boolean).join(' · ');
               if (facts) facts.textContent = previewFacts;
-              else if (previewFacts) copy?.querySelector('.library-tile-action')?.before(make('span','muted',previewFacts));
+              else if (previewFacts) copy?.append(make('span','muted',previewFacts));
             }
             updateTitle(preview);
             return;
           }
           seen.add(id);
           previews.push(preview);
-          if (known) {
-            const card = searchCard(known);
-            cards.set(id,card);
-            results.append(card);
-            return;
-          }
-          const card = showCard(preview,() => {
-            const added = importShow(rawMatches.get(id),id);
-            location.hash = showPath(added);
-          });
+          if (!known) searchPreviews.set(id,preview);
+          const card = searchCard(preview);
           cards.set(id,card);
           results.append(card);
         }
