@@ -2,9 +2,10 @@ import {readLocal, writeLocal} from './storage.js';
 import {mediaAddress} from './urls.js';
 import {canonicalEpisode, seriesIdentity} from './series-config.js';
 import {integrationSettings} from './integrations.js';
-import {seriesEditorial} from './series-data.js';
+import {breakingBad, interns, seriesEditorial, seriesPremises} from './series-data.js';
 import {localizedSeriesTitle} from './series-titles-ru.js';
 import {imdbScore, loadCinemetaRating, validImdb} from './cinemeta.js';
+import {descriptionLanguage, translatePublicDescription} from './description-translation.js';
 
 const seriesMetadata = (() => {
   const keyName = 'konfoly-kinopoisk-api-key';
@@ -15,6 +16,14 @@ const seriesMetadata = (() => {
     Italian:'it',Portuguese:'pt',Dutch:'nl',Turkish:'tr',Chinese:'zh',Hindi:'hi',Polish:'pl',Ukrainian:'uk',Russian:'ru'};
   const itemKey = item => item.season + ':' + item.episode;
   const storageKey = show => 'konfoly-show-metadata:' + show.id;
+  const cyrillic = /\p{Script=Cyrillic}/u;
+  const sentenceSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('ru',{granularity:'sentence'}) : null;
+  const productionNote = /\b(?:created|produced|directed|developed|written) by\b|\b(?:premiered|originally aired|was broadcast)\b|\b(?:television series|sitcom) (?:that aired|produced|created)\b|(?:создан[а-яё]*|снят[а-яё]*|выпущен[а-яё]*)\s+(?:по заказу|на студии|компанией|режисс[её]ром)|(?:телесериал|сериал)[^.!?]{0,48}создан|(?:всего было выпущено|премьера (?:состоялась|сериала)|выш[её]л на экраны|транслировался на)/iu;
+  const regionalRatings = [
+    {country:'US',label:'США',pattern:/^TV-(?:Y|Y7|Y7-FV|G|PG|14|MA)$/},
+    {country:'GB',label:'Великобритания',pattern:/^(?:U|PG|12|12A|15|18|R18)$/},
+    {country:'AU',label:'Австралия',pattern:/^(?:G|PG|M|MA\s?15\+|R\s?18\+)$/}
+  ];
 
   function apiKey() {
     try { return sessionStorage.getItem(keyName) || ''; } catch { return ''; }
@@ -36,7 +45,7 @@ const seriesMetadata = (() => {
       else sessionStorage.removeItem(tmdbKeyName);
     for (const data of cached.values()) {
       delete data.tmdbCheckedAt;
-      delete data.tmdbAgeCheckedAt;
+      delete data.tmdbAgeRegionsCheckedAt;
     }
       return true;
     } catch { return false; }
@@ -76,16 +85,27 @@ const seriesMetadata = (() => {
   function editorialAgeRating(show) {
     return seriesIdentity(show)?.ageRating || seriesEditorial[show.mazeId]?.ageRating;
   }
+  function ageRating(show) {
+    const editorial = editorialAgeRating(show);
+    const data = read(show);
+    const tmdb = data.tmdbAgeRating || '';
+    return russianAgeRating(editorial) || data.kpAgeRating || russianAgeRating(tmdb) || editorial || tmdb;
+  }
 
   async function loadTmdbAgeRating(show,signal,token,onChange) {
     const id = await tmdbSeriesId(show,signal,token);
     if (!id || signal.aborted) return;
-    const {results = []} = await tmdbRequest('tv/' + id + '/content_ratings',signal,token);
+    const {results} = await tmdbRequest('tv/' + id + '/content_ratings',signal,token);
     if (signal.aborted) return;
-    const ru = russianAgeRating(results.find(entry => entry.iso_3166_1 === 'RU')?.rating);
-    const us = results.find(entry => entry.iso_3166_1 === 'US')?.rating;
-    const tmdbAgeRating = ru || (/^TV-(Y|Y7|Y7-FV|G|PG|14|MA)$/.test(us) ? us + ' (США)' : '');
-    save(show,{tmdbAgeRating,tmdbAgeCheckedAt:Date.now()});
+    const entries = Array.isArray(results) ? results : [];
+    const ratingFrom = country => entries.find(entry => entry?.iso_3166_1 === country)?.rating?.trim?.() || '';
+    let tmdbAgeRating = russianAgeRating(ratingFrom('RU'));
+    for (const {country,label,pattern} of regionalRatings) {
+      if (tmdbAgeRating) break;
+      const rating = ratingFrom(country);
+      if (pattern.test(rating)) tmdbAgeRating = rating + ' (' + label + ')';
+    }
+    save(show,{tmdbAgeRating,tmdbAgeRegionsCheckedAt:Date.now()});
     if (tmdbAgeRating) onChange();
   }
   const logoChecks = new Map();
@@ -152,6 +172,39 @@ const seriesMetadata = (() => {
   }
   function plain(value) {
     return text(new DOMParser().parseFromString(text(value),'text/html').body.textContent);
+  }
+  function plotSynopsis(value) {
+    const source = text(value).replace(/\s+/gu,' ');
+    const sentences = sentenceSegmenter ? [...sentenceSegmenter.segment(source)].map(item => item.segment) :
+      source.match(/[^.!?]+[.!?]*/gu) || [];
+    return sentences.map(sentence => sentence.trim()).filter(sentence => sentence && !productionNote.test(sentence))
+      .slice(0,2).join(' ');
+  }
+  function curatedPlot(show) {
+    const mazeId = show.mazeId ?? seriesIdentity(show)?.mazeId;
+    if (mazeId === breakingBad.mazeId) return {text:breakingBad.description};
+    if (mazeId === interns.mazeId) return {text:interns.description};
+    const entry = seriesEditorial[mazeId];
+    if (seriesPremises[mazeId]) return {text:seriesPremises[mazeId]};
+    if (entry?.description) return {text:entry.description,source:entry.source,label:entry.label};
+  }
+  async function loadMazePlot(show,signal,onChange) {
+    let id = show.mazeId ?? seriesIdentity(show)?.mazeId;
+    if (!id && validImdb(show.imdb?.id)) {
+      const match = await json('https://api.tvmaze.com/lookup/shows?imdb=' + show.imdb.id,{signal});
+      id = match.externals?.imdb === show.imdb.id ? match.id : null;
+    }
+    if (!Number.isInteger(id) || signal.aborted) return;
+    const result = await json('https://api.tvmaze.com/shows/' + id + '?embed=cast',{signal});
+    if (signal.aborted || result.id !== id) return;
+    const cast = result._embedded?.cast;
+    const characters = Array.isArray(cast) ? cast.map(item => text(item?.character?.name,100)).filter(Boolean) : [];
+    save(show,{
+      mazeSynopsis:plotSynopsis(plain(result.summary)),
+      mazeCharacters:[...new Set(characters)].slice(0,3),
+      mazePlotCheckedAt:Date.now()
+    });
+    onChange();
   }
   function image(value) {
     const address = mediaAddress(text(value),1,1);
@@ -300,16 +353,6 @@ const seriesMetadata = (() => {
   const kpRequest = (id,suffix,key,signal) => json('https://kinopoiskapiunofficial.tech/api/v2.2/films/' + id + suffix,
     keyLookupOptions(signal,key));
 
-  async function wikiIntro(title,signal) {
-    const query = new URL('https://ru.wikipedia.org/w/api.php');
-    for (const [key,value] of Object.entries({action:'query',prop:'extracts',exintro:'1',explaintext:'1',
-      exsentences:'3',redirects:'1',format:'json',formatversion:'2',origin:'*',titles:title})) query.searchParams.set(key,value);
-    const data = await json(query,{signal});
-    const entry = data.query?.pages?.[0];
-    if (!entry?.extract || entry.missing) return {};
-    return {wikiDescription:text(entry.extract,800),
-      wikiSource:'https://ru.wikipedia.org/wiki/' + encodeURIComponent(entry.title.replaceAll(' ','_'))};
-  }
   async function commonsThumbnails(addresses,signal) {
     const files = addresses.flatMap(address => {
       try {
@@ -347,6 +390,9 @@ const seriesMetadata = (() => {
     const data = read(show);
     const key = apiKey();
     const jobs = [];
+    if (!curatedPlot(show) && !fresh(data.mazePlotCheckedAt)) {
+      jobs.push(loadMazePlot(show,signal,onChange).catch(() => {}));
+    }
     const logoAddress = integrationSettings.logoEndpoint;
     if (logoAddress && /^tt\d{5,12}$/.test(show.imdb?.id || '') && !fresh(data.operatorLogosCheckedAt)) {
       jobs.push((async () => {
@@ -364,7 +410,7 @@ const seriesMetadata = (() => {
     }
     const token = tmdbToken();
     const editorialAge = editorialAgeRating(show);
-    if (token && !editorialAge && !data.kpAgeRating && !fresh(data.tmdbAgeCheckedAt)) {
+    if (token && !russianAgeRating(editorialAge) && !data.kpAgeRating && !fresh(data.tmdbAgeRegionsCheckedAt)) {
       jobs.push(loadTmdbAgeRating(show,signal,token,onChange).catch(() => {}));
     }
     if (token && !fresh(data.tmdbCheckedAt)) {
@@ -410,17 +456,11 @@ const seriesMetadata = (() => {
             if (logos.length) onChange();
           }
         });
-        if (wiki.wikiTitle && !/\p{Script=Cyrillic}/u.test(show.description || '')) {
-          const intro = await wikiIntro(wiki.wikiTitle,signal);
-          if (signal.aborted) return;
-          save(show,intro);
-          onChange();
-        }
         await logoJob;
       })());
     }
     if (key && (!fresh(data.kpCheckedAt) || !Object.hasOwn(data,'kpDescription') ||
-        (!editorialAge && !Object.hasOwn(data,'kpAgeRating')))) {
+        (!russianAgeRating(editorialAge) && !Object.hasOwn(data,'kpAgeRating')))) {
       jobs.push((async () => {
         const id = await kinopoiskId(show,signal).catch(() => null);
         if (signal.aborted) return;
@@ -546,36 +586,64 @@ const seriesMetadata = (() => {
 
   function details(show) {
     const data = read(show);
-    const editorial = typeof seriesEditorial === 'undefined' ? null : seriesEditorial[show.mazeId];
-    const description = data.kpDescription ? {text:data.kpDescription,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'} :
-      editorial?.description ? {text:editorial.description,source:editorial.source,label:editorial.label} :
-      /\p{Script=Cyrillic}/u.test(show.description || '') ? {text:show.description} :
-      data.wikiDescription ? {text:data.wikiDescription,source:data.wikiSource,label:'Википедия'} :
-      data.translatedShow?.description ? {text:data.translatedShow.description,label:'Машинный перевод'} : {text:show.description || ''};
-    const ageRating = editorialAgeRating(show) || data.kpAgeRating || data.tmdbAgeRating || '';
-    return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,description,ageRating};
+    const editorial = seriesEditorial[show.mazeId];
+    const curated = curatedPlot(show);
+    const kpSynopsis = plotSynopsis(data.kpDescription);
+    const catalogSynopsis = plotSynopsis(show.description);
+    const savedSource = data.translatedShow?.source;
+    const synopsis = savedSource && [catalogSynopsis,data.mazeSynopsis].includes(savedSource) ? savedSource : catalogSynopsis || data.mazeSynopsis || '';
+    const translated = savedSource === synopsis ? data.translatedShow.description : '';
+    const description = curated || (kpSynopsis ? {text:kpSynopsis,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'} :
+      translated ? {text:translated,label:'Машинный перевод'} : {text:synopsis});
+    return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,
+      description,originalDescription:translated && description.text === translated ? synopsis : '',
+      characters:curated ? [] : data.mazeCharacters || [],ageRating:ageRating(show)};
   }
-  async function translateShow(show,signal,onChange) {
+  async function translateShow(show,signal,onChange,{online=false,onProgress}={}) {
     const original = details(show);
-    const translator = await globalThis.Translator.create({sourceLanguage:languages[show.language] || 'en',targetLanguage:'ru',signal});
+    const source = original.description.text;
+    const needsDescription = !!source && !cyrillic.test(source);
+    const needsTitle = !online && !!show.title && !cyrillic.test(original.title);
+    if (!needsDescription && !needsTitle) return;
+    const sourceLanguage = needsDescription ? descriptionLanguage(source) : languages[show.language] || 'en';
+    const output = {};
     try {
-      const output = {};
-      if (!/\p{Script=Cyrillic}/u.test(original.title)) output.title = text(await translator.translate(show.title,{signal}),230);
-      if (show.description && !/\p{Script=Cyrillic}/u.test(original.description.text)) {
-        output.description = text(await translator.translate(show.description,{signal}),800);
+      const translator = await globalThis.Translator.create({sourceLanguage,targetLanguage:'ru',signal,
+        monitor(monitor) {
+          monitor.addEventListener('downloadprogress',event => {
+            onProgress?.('Загрузка языкового пакета · ' + Math.round(event.loaded * 100) + '%');
+          });
+        }});
+      try {
+        if (needsDescription) output.description = text(await translator.translate(source,{signal}));
+        if (needsTitle) output.title = text(await translator.translate(show.title,{signal}).catch(() => ''),230);
+      } finally {
+        translator.destroy();
       }
-      if (!signal.aborted) {
-        save(show,{translatedShow:{...read(show).translatedShow,...output}});
-        onChange();
-      }
-    } finally { translator.destroy(); }
+    } catch (error) {
+      if (signal.aborted) return;
+      if (!online) throw error;
+    }
+    if (online && needsDescription && !cyrillic.test(output.description || '')) {
+      onProgress?.('Переводим описание…');
+      output.description = await translatePublicDescription(source,sourceLanguage,signal);
+    }
+    if (signal.aborted) return;
+    if (cyrillic.test(output.description || '')) output.source = source;
+    else delete output.description;
+    if (Object.keys(output).length) {
+      save(show,{translatedShow:{...read(show).translatedShow,...output}});
+      onChange();
+    }
   }
   function canTranslate(show) {
     return typeof globalThis.Translator?.create === 'function' && show.language !== 'Russian';
   }
   async function translateIfReady(show,items,signal,onChange,titlesOnly=false) {
     if (!canTranslate(show) || typeof globalThis.Translator.availability !== 'function') return;
-    const options = {sourceLanguage:languages[show.language] || 'en',targetLanguage:'ru'};
+    const description = items?.length ? '' : details(show).description.text;
+    const sourceLanguage = description && !cyrillic.test(description) ? descriptionLanguage(description) : languages[show.language] || 'en';
+    const options = {sourceLanguage,targetLanguage:'ru'};
     try {
       if (await globalThis.Translator.availability(options) !== 'available' || signal.aborted) return;
       if (items?.length) await translate(show,items,signal,onChange,titlesOnly);
@@ -614,7 +682,7 @@ const seriesMetadata = (() => {
     } finally { translator.destroy(); }
   }
 
-  return {loadEpisodeTitles,searchTitles,catalogSearch,wikiEpisodeArticle,imdbRating,loadImdbRating,rememberImdbRating,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {loadEpisodeTitles,searchTitles,catalogSearch,wikiEpisodeArticle,ageRating,imdbRating,loadImdbRating,rememberImdbRating,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();
 
 export {seriesMetadata};

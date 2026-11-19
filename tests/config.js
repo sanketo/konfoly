@@ -151,3 +151,55 @@ test('IMDb series rating is loaded without episodes, validated and cached by tit
   assert.equal(update.mock.callCount(),1);
   assert.equal(fetchMock.mock.callCount(),1);
 });
+
+test('series pages prefer a short premise and resolve ratings by either identity', () => {
+  const prisonBreak = {id:'imdb-tt0455275',imdb:{id:'tt0455275'},description:'Prison Break was created by Paul Scheuring.'};
+  const details = seriesMetadata.details(prisonBreak);
+  assert.match(details.description.text,/Майкл Скофилд.*Линкольна Берроуза/u);
+  assert.equal(details.ageRating,'18+');
+  assert.equal(seriesMetadata.ageRating({id:'tvmaze-1505',mazeId:1505}),'18+');
+  assert.equal(seriesMetadata.ageRating({id:'tvmaze-38134',mazeId:38134}),'TV-MA (США)');
+});
+
+test('translation falls back online using the synopsis language and keeps the original premise', async (context) => {
+  const show = {id:'tvmaze-91918',title:'Test Show',language:'Japanese',
+    description:'A Japanese television series created by Test Studio. Mina searches for a missing friend. An old letter gives her a lead.'};
+  const premise = 'Mina searches for a missing friend. An old letter gives her a lead.';
+  const translated = 'Мина ищет пропавшего друга. Старое письмо даёт ей зацепку.';
+  Object.defineProperty(globalThis,'Translator',{configurable:true,value:{create:async () => { throw Error('Unavailable'); }}});
+  context.after(() => { delete globalThis.Translator; });
+  context.mock.method(globalThis,'fetch',async (url,options) => {
+    assert.equal(url.origin,'https://api.mymemory.translated.net');
+    assert.equal(url.searchParams.get('q'),premise);
+    assert.equal(url.searchParams.get('langpair'),'en|ru');
+    assert.equal(options.credentials,'omit');
+    return Response.json({responseStatus:200,responseData:{translatedText:translated}});
+  });
+  assert.equal(seriesMetadata.details(show).description.text,premise);
+  const refresh = context.mock.fn();
+  await seriesMetadata.translateShow(show,new AbortController().signal,refresh,{online:true});
+  assert.equal(refresh.mock.callCount(),1);
+  assert.equal(seriesMetadata.details(show).description.text,translated);
+  assert.equal(seriesMetadata.details(show).originalDescription,premise);
+});
+
+test('an imported show can use a regional TMDB certificate when a Russian rating is missing', async (context) => {
+  const show = {id:'imdb-tt65432741',tmdbId:78451,title:'Test Show'};
+  const now = Date.now();
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
+    getItem:() => JSON.stringify({wikiCheckedAt:now,wikiArtCheckedAt:now,mazePlotCheckedAt:now,tmdbCheckedAt:now}),
+    setItem() {}
+  }});
+  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{
+    getItem:key => key === 'konfoly-tmdb-read-token' ? 'fixture-token' : null
+  }});
+  context.after(() => { delete globalThis.localStorage; delete globalThis.sessionStorage; });
+  context.mock.method(globalThis,'fetch',async address => {
+    assert.equal(new URL(address).pathname,'/3/tv/78451/content_ratings');
+    return Response.json({results:[{iso_3166_1:'RU',rating:''},{iso_3166_1:'GB',rating:'15'},{iso_3166_1:'AU',rating:'M'}]});
+  });
+  const refresh = context.mock.fn();
+  await seriesMetadata.load(show,new AbortController().signal,refresh);
+  assert.equal(seriesMetadata.ageRating(show),'15 (Великобритания)');
+  assert.equal(refresh.mock.callCount(),1);
+});

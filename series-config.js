@@ -1,6 +1,6 @@
 const mentalistCatalog = {
   id:'mentalist',mazeId:116,title:'Менталист',original:'The Mentalist',years:'2008–2015',
-  image:'assets/mentalist-poster.webp',kinopoiskId:412344,episodeCount:151,seasonCount:7,ageRating:'18+',
+  image:'assets/mentalist-poster.webp',imdbId:'tt1196946',kinopoiskId:412344,episodeCount:151,seasonCount:7,ageRating:'18+',
   defaultVoice:'ТВ3',chroma:.15,hue:22,
   spoilerTitles:['6:8'],
   combinedEpisodes:[{season:3,first:23,last:24,voice:'ТВ3',completionTime:4800}]
@@ -11,8 +11,23 @@ const seriesIdentities = [
   {mazeId:169,imdbId:'tt0903747',kinopoiskId:404900,ageRating:'18+'},
   {mazeId:184,imdbId:'tt3398228',kinopoiskId:818185,title:'Конь БоДжек',ageRating:'18+'},
   {mazeId:3391,imdbId:'tt1647423',kinopoiskId:501998,canonicalId:'interns',seasonLengths:[60,60,61,98],ageRating:'18+'},
-  {imdbId:'tt3032476',kinopoiskId:796660},
-  {imdbId:'tt1475582',kinopoiskId:502838},
+  {mazeId:618,imdbId:'tt3032476',kinopoiskId:796660,ageRating:'18+'},
+  {mazeId:335,imdbId:'tt1475582',kinopoiskId:502838,ageRating:'12+'},
+  {mazeId:1505,imdbId:'tt0388629',kinopoiskId:382731,ageRating:'18+'},
+  {mazeId:541,imdbId:'tt0455275',kinopoiskId:258048,ageRating:'18+'},
+  // The Novelist, rated TV-MA on IMDb.
+  {mazeId:38134,imdbId:'tt8807496',ageRating:'TV-MA (США)'},
+  {mazeId:526,imdbId:'tt0386676',kinopoiskId:253245,ageRating:'18+'},
+  {mazeId:161,imdbId:'tt0773262',kinopoiskId:277537,ageRating:'18+'},
+  {mazeId:172,imdbId:'tt1632701',kinopoiskId:557806,ageRating:'18+'},
+  {mazeId:82,imdbId:'tt0944947',kinopoiskId:464963,ageRating:'18+'},
+  {mazeId:2993,imdbId:'tt4574334',kinopoiskId:915196,ageRating:'16+'},
+  {mazeId:431,imdbId:'tt0108778',kinopoiskId:77044,ageRating:'18+'},
+  {mazeId:532,imdbId:'tt0285403',kinopoiskId:251568,ageRating:'18+'},
+  {mazeId:30770,imdbId:'tt7366338',kinopoiskId:1227803,ageRating:'18+'},
+  // Netflix's US classifications.
+  {mazeId:17861,imdbId:'tt5753856',kinopoiskId:1032606,ageRating:'TV-MA (США)'},
+  {mazeId:27436,imdbId:'tt6468322',ageRating:'TV-MA (США)'},
   {mazeId:44776,hue:151}
 ];
 

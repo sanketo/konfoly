@@ -263,7 +263,7 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
  .hero-poster{grid-area:poster}.hero .poster{aspect-ratio:2/3;max-height:none}
  .hero-poster::before{filter:blur(20px) saturate(1.2);opacity:.62}
  .hero-ratings{grid-area:ratings;margin:0}
- .hero .synopsis{grid-area:description;margin:0}
+ .hero .synopsis,.hero-description{grid-area:description;margin:0}
  .hero .hero-actions{grid-area:actions;margin:0}
  .hero :is(#continue-info,.hero-resume){grid-area:resume}
  .hero .show-wordmark{margin:8px 0 4px}
@@ -364,8 +364,31 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 .library-tile:is(:hover,:focus-visible) {
   background:color-mix(in srgb,var(--tile-accent) 24%,var(--container));
 }
-#library-grid > [href="#series/breaking-bad"] { --tile-hue:89 }
-#library-grid > [href="#series/interns"] { --tile-hue:356 }
+.library-saved-card { position:relative; display:grid; min-width:0; }
+.library-card-button {
+  position:absolute;
+  top:8px;
+  display:grid;
+  place-items:center;
+  width:44px;
+  height:44px;
+  min-height:0;
+  padding:0;
+  background:#181518e6;
+  color:#fff;
+  font-size:1.4rem;
+  line-height:1;
+}
+.library-favorite { inset-inline-start:8px; }
+.library-remove { inset-inline-end:8px; }
+.library-favorite[aria-pressed=true] { background:#ffd184; color:#352100; }
+.library-feedback:has(button:not([hidden])), .library-feedback:has(p:not(:empty)) {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:4px 12px;
+  margin-block-start:12px;
+}
 .settings-advanced { margin-top:16px; }
 .settings-advanced > summary { width:fit-content; cursor:pointer; border-radius:var(--r-small); padding:10px 14px; color:var(--muted); }
 .settings-advanced[open] > summary { margin-bottom:12px; }
@@ -474,10 +497,9 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
   color:var(--text); background:var(--surface); border:1px solid var(--outline) }
 
 .hero .synopsis-source { margin-top:4px }
-@media(max-width:559px) {
- .hero:has(.synopsis-source:not([hidden])) { grid-template-areas:"heading poster" "ratings ratings" "description description" "attribution attribution" "actions actions" "resume resume" }
- .hero .synopsis-source { grid-area:attribution }
-}
+.hero-description .synopsis { margin-top:0 }
+.hero-description :is(.hero-characters,.tonal,.translation-status:not(:empty)) { margin-top:8px }
+@media(min-width:560px) { .hero-description { margin-top:16px } }
 
 .watch-preflight { margin-block:12px; max-width:min(340px,100%); }
 .watch-preflight .watch-track-field { width:100%; }
