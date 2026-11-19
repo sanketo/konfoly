@@ -1,8 +1,9 @@
 import {bindVideoAmbient} from './video-ambient.js';
 import {bindPointerBoost, playbackTime} from './video-progress.js';
-import {requestCinemaFullscreen} from './video-controls.js';
+import {playbackRates, requestCinemaFullscreen} from './video-controls.js';
 
 function createCinemaPlayer(video,options={}){
+ const speedOptions=playbackRates.map(rate=>'<option value="'+rate+'">'+rate+'×</option>').join('');
  const icons={
   play:'<path d="M8 5L20 12L8 19Z" fill="currentColor" stroke="none"/>',
   pause:'<path d="M8 5v14M16 5v14" stroke-width="4"/>',
@@ -16,7 +17,7 @@ function createCinemaPlayer(video,options={}){
  const shell=document.createElement('div');shell.className='cinema-player paused';shell.tabIndex=0;shell.setAttribute('aria-label','Видеоплеер: пробел — пауза, удержание — 2×');
  const originalParent=video.parentElement;video.controls=false;video.tabIndex=-1;originalParent.append(shell);shell.append(video);
  const overlay=document.createElement('div');overlay.className='cinema-overlay';
- overlay.innerHTML='<div class="cinema-top"><span class="cinema-title"></span><span class="cinema-resolution">Загрузка видео</span></div><div class="cinema-boost" aria-live="polite">2× <span>УСКОРЕНИЕ</span></div><div class="cinema-spinner" aria-hidden="true"></div><button type="button" class="cinema-center" aria-label="Продолжить просмотр">'+icon('play')+'</button><div class="cinema-controls"><div class="cinema-timeline"><span class="cinema-clock">0:00 <span>/ 0:00</span></span><input class="cinema-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Позиция просмотра"></div><div class="cinema-bottom"><div class="cinema-left"><button type="button" class="cinema-toggle" aria-label="Воспроизвести">'+icon('play')+'</button><button type="button" class="cinema-back" aria-label="Назад на 10 секунд">'+icon('back')+'</button><button type="button" class="cinema-forward" aria-label="Вперёд на 10 секунд">'+icon('forward')+'</button></div><div class="cinema-right"><div class="cinema-volume"><button type="button" class="cinema-mute" aria-label="Выключить звук">'+icon('volume')+'</button><input type="range" min="0" max="1" step="0.05" class="cinema-volume-range" aria-label="Громкость"></div><button type="button" class="cinema-quick" aria-label="Включить скорость 2×" aria-pressed="false" title="Переключить 2×">2×</button><select class="cinema-speed" aria-label="Скорость воспроизведения"><option value="0.75">0.75×</option><option value="1">1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select><button type="button" class="cinema-full" aria-label="Полный экран">'+icon('full')+'</button></div></div></div>';
+ overlay.innerHTML='<div class="cinema-top"><span class="cinema-title"></span><span class="cinema-resolution">Загрузка видео</span></div><div class="cinema-boost" aria-live="polite">2× <span>УСКОРЕНИЕ</span></div><div class="cinema-spinner" aria-hidden="true"></div><button type="button" class="cinema-center" aria-label="Продолжить просмотр">'+icon('play')+'</button><div class="cinema-controls"><div class="cinema-timeline"><span class="cinema-clock">0:00 <span>/ 0:00</span></span><input class="cinema-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Позиция просмотра"></div><div class="cinema-bottom"><div class="cinema-left"><button type="button" class="cinema-toggle" aria-label="Воспроизвести">'+icon('play')+'</button><button type="button" class="cinema-back" aria-label="Назад на 10 секунд">'+icon('back')+'</button><button type="button" class="cinema-forward" aria-label="Вперёд на 10 секунд">'+icon('forward')+'</button></div><div class="cinema-right"><div class="cinema-volume"><button type="button" class="cinema-mute" aria-label="Выключить звук">'+icon('volume')+'</button><input type="range" min="0" max="1" step="0.05" class="cinema-volume-range" aria-label="Громкость"></div><button type="button" class="cinema-quick" aria-label="Включить скорость 2×" aria-pressed="false" title="Переключить 2×">2×</button><select class="cinema-speed" aria-label="Скорость воспроизведения">'+speedOptions+'</select><button type="button" class="cinema-full" aria-label="Полный экран">'+icon('full')+'</button></div></div></div>';
  shell.append(overlay);const stopAmbient=bindVideoAmbient(video,originalParent.parentElement?.querySelector('.video-ambient'));const q=s=>overlay.querySelector(s),seek=q('.cinema-seek'),clock=q('.cinema-clock'),speed=q('.cinema-speed');
  q('.cinema-title').textContent=options.title||'Менталист';
  let hideTimer=null,seeking=false,normalRate=options.rate===2?1:(options.rate||1);const listeners=[];const pointerBoost=bindPointerBoost(video,video,active=>{shell.classList.toggle('boosting',active);show()});
@@ -61,7 +62,10 @@ function createCinemaPlayer(video,options={}){
  on(video,'volumechange',updateVolume);on(video,'ratechange',()=>{if(!shell.classList.contains('boosting'))speed.value=String(video.playbackRate);q('.cinema-quick').setAttribute('aria-pressed',video.playbackRate===2);q('.cinema-quick').classList.toggle('active',video.playbackRate===2)});
  on(video,'waiting',()=>shell.classList.add('waiting'));on(video,'playing',()=>shell.classList.remove('waiting'));on(video,'canplay',()=>shell.classList.remove('waiting'));
  on(shell,'pointermove',show);on(shell,'pointerdown',show);on(shell,'focusin',show);
- video.volume=options.volume??1;speed.value=String(options.rate||1);updateVolume();updateState();updateTime();
+ video.defaultPlaybackRate=options.rate||1;
+ video.playbackRate=video.defaultPlaybackRate;
+ speed.value=String(video.playbackRate);
+ video.volume=options.volume??1;updateVolume();updateState();updateTime();
  return {setBoost(active){shell.classList.toggle('boosting',active);show()},destroy(){stopAmbient();pointerBoost.destroy();clearTimeout(hideTimer);listeners.forEach(remove=>remove())}};
 }
 

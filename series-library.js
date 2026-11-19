@@ -714,7 +714,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const localizedWordmark = make('p','hero-russian-title');
     heading.append(title,localizedWordmark);
     if (show.original || show.mazeId === 184) heading.append(make('p','show-title',show.original || show.title));
-    heading.append(make('p','eyebrow hero-facts',[showYears(show),show.genre].filter(Boolean).join(' · ')));
+    const facts = make('p','eyebrow hero-facts');
+    heading.append(facts);
     const rating = ratings(show,seriesMetadata.imdbRating(show),'series','Сериал');
     rating.classList.add('hero-ratings');
     const actions = make('div','hero-actions');
@@ -765,6 +766,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     function updateShowDetails() {
       renderTitle();
       const details = seriesMetadata.details(show);
+      facts.textContent = [showYears(show),show.genre,'Возрастной рейтинг ' + (details.ageRating || 'не указан')]
+        .filter(Boolean).join(' · ');
       const hasOriginal = !!details.description.text && !/\p{Script=Cyrillic}/u.test(details.description.text);
       synopsis.textContent = hasOriginal ? '' : details.description.text;
       synopsis.hidden = !synopsis.textContent;
@@ -1026,7 +1029,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       };
       video.addEventListener('loadedmetadata',reportResolution);
       video.addEventListener('resize',reportResolution);
-      const player = createCinemaPlayer(video,{title:formatEpisode(item),rate:preferences.rate,volume:preferences.volume});
+      const player = createCinemaPlayer(video,{
+        title:formatEpisode(item),rate:preferences.rate,volume:preferences.volume,
+        onRate(value) { preferences.rate = value; persist(); }
+      });
       const stopKeys = bindVideoKeys(video,document,active => player.setBoost(active));
       const viewed = readLocal(historyKeyFor(show))[episodeKey(item)];
       const stopMemory = bindPlaybackMemory(video,{...item,source},message => { status.textContent = [label,message].filter(Boolean).join(' · '); },{

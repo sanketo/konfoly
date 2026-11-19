@@ -1,6 +1,6 @@
 const mentalistCatalog = {
   id:'mentalist',mazeId:116,title:'Менталист',original:'The Mentalist',years:'2008–2015',
-  image:'assets/mentalist-poster.webp',kinopoiskId:412344,episodeCount:151,seasonCount:7,
+  image:'assets/mentalist-poster.webp',kinopoiskId:412344,episodeCount:151,seasonCount:7,ageRating:'18+',
   defaultVoice:'ТВ3',chroma:.15,hue:22,
   spoilerTitles:['6:8'],
   combinedEpisodes:[{season:3,first:23,last:24,voice:'ТВ3',completionTime:4800}]
@@ -8,9 +8,9 @@ const mentalistCatalog = {
 
 const seriesIdentities = [
   mentalistCatalog,
-  {mazeId:169,imdbId:'tt0903747',kinopoiskId:404900},
-  {mazeId:184,imdbId:'tt3398228',kinopoiskId:818185,title:'Конь БоДжек'},
-  {mazeId:3391,imdbId:'tt1647423',kinopoiskId:501998,canonicalId:'interns',seasonLengths:[60,60,61,98]},
+  {mazeId:169,imdbId:'tt0903747',kinopoiskId:404900,ageRating:'18+'},
+  {mazeId:184,imdbId:'tt3398228',kinopoiskId:818185,title:'Конь БоДжек',ageRating:'18+'},
+  {mazeId:3391,imdbId:'tt1647423',kinopoiskId:501998,canonicalId:'interns',seasonLengths:[60,60,61,98],ageRating:'18+'},
   {imdbId:'tt3032476',kinopoiskId:796660},
   {imdbId:'tt1475582',kinopoiskId:502838},
   {mazeId:44776,hue:151}

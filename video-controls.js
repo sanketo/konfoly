@@ -54,4 +54,6 @@ async function requestCinemaFullscreen(element) {
   return true;
 }
 
-export {bindVideoKeys, isMobileCinema, requestCinemaFullscreen};
+const playbackRates = [.75,1,1.1,1.25,1.5,1.75,2];
+
+export {bindVideoKeys, isMobileCinema, playbackRates, requestCinemaFullscreen};

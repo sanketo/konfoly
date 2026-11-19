@@ -10,7 +10,7 @@ import {importanceCatalog, importanceLabels} from './importance.js';
 import {ratingBadge, renderEpisodeRatings, renderSeasonRatings, renderSeriesRatings} from './ratings.js';
 import {episodeTitlesRu} from './episode-titles-ru.js';
 import {externalRatingData} from './ratings-data.js';
-import {bindVideoKeys, isMobileCinema, requestCinemaFullscreen} from './video-controls.js';
+import {bindVideoKeys, isMobileCinema, playbackRates, requestCinemaFullscreen} from './video-controls.js';
 import {createCinemaPlayer} from './player-ui.js';
 import {mediaAddress} from './urls.js';
 import {integrationSettings} from './integrations.js';
@@ -58,9 +58,11 @@ const preferences = {
   selected:mediaProviders.some(provider => provider.id === saved.selected) ? saved.selected : 'native',
   voice:typeof saved.voice === 'string' && saved.voice.trim() && saved.voice.length <= 80 ? saved.voice : mentalistCatalog.defaultVoice,
   quality:saved.quality === 'hd' ? 'hd' : 'fullhd',
-  rate:[.75,1,1.25,1.5,1.75,2].includes(saved.rate) ? saved.rate : 1,
+  rate:playbackRates.includes(saved.rate) ? saved.rate : 1,
   volume:typeof saved.volume === 'number' && saved.volume >= 0 && saved.volume <= 1 ? saved.volume : 1
 };
+
+$('home-age-rating').textContent = mentalistCatalog.ageRating;
 
 function episodeHash(item) { return '#watch/' + item.season + '/' + item.episode; }
 function persist() {

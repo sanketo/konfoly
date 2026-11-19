@@ -13,7 +13,7 @@ class Element extends EventTarget{
  const ids=new Map(),doc=new EventTarget(),storage=new Map(),requests=[];doc.visibilityState='visible';doc.getElementById=id=>{if(!ids.has(id))ids.set(id,new Element());return ids.get(id)};doc.createElement=t=>new Element(t);doc.querySelectorAll=()=>[];doc.querySelector=()=>new Element();doc.documentElement={dataset:{}};
  const location=new URL('https://test.invalid/');const window=new EventTarget();window.scrollTo=()=>{};
  const platform={configure(){},showBack(){},tap(){},applyChrome(){}};const history={pushState(_state,_title,hash){location.hash=hash}};
- storage.set('mentalist-personal-v1',JSON.stringify({season:1,episode:1,voice:'ТВ3',selected:'native',playerVersion:3}));storage.set('mentalist-progress-v1',JSON.stringify({last:{season:4,episode:11,time:850,duration:2500,voice:'ТВ3',source:'native'}}));
+ storage.set('mentalist-personal-v1',JSON.stringify({season:1,episode:1,voice:'ТВ3',selected:'native',playerVersion:3,rate:1.1}));storage.set('mentalist-progress-v1',JSON.stringify({last:{season:4,episode:11,time:850,duration:2500,voice:'ТВ3',source:'native'}}));
  const stalled=new Map();
  const schedule=(callback,ms)=>{if(ms!==14000)return setTimeout(callback,ms);const key=Symbol('stall');stalled.set(key,callback);return key};
  const cancel=key=>{if(typeof key==='symbol')stalled.delete(key);else clearTimeout(key)};
@@ -22,6 +22,8 @@ class Element extends EventTarget{
  vm.createContext(ctx);for(const f of ['dom.js','storage.js','series-config.js','integrations.js','urls.js','video-progress.js','video-controls.js','episodes.js','episode-titles-ru.js','importance.js','providers.js','ratings-data.js','ratings.js','app.js'])vm.runInContext(source(f),ctx);
  assert.match(ids.get('continue-info').textContent,/Сезон 4 · Серия 11/);
  assert.equal(ids.get('series-ratings').children.length,2);
+ assert.equal(ids.get('home-age-rating').textContent,'18+');
+ assert.equal(vm.runInContext('preferences.rate',ctx),1.1);
  const seasonFour=ctx.seasonRating(4);
  assert.equal(seasonFour.count,24);
  assert.equal(seasonFour.total,24);

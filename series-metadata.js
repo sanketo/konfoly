@@ -34,7 +34,10 @@ const seriesMetadata = (() => {
     try {
       if (value) sessionStorage.setItem(tmdbKeyName,value);
       else sessionStorage.removeItem(tmdbKeyName);
-      for (const data of cached.values()) delete data.tmdbCheckedAt;
+    for (const data of cached.values()) {
+      delete data.tmdbCheckedAt;
+      delete data.tmdbAgeCheckedAt;
+    }
       return true;
     } catch { return false; }
   }
@@ -63,6 +66,27 @@ const seriesMetadata = (() => {
       .filter(logo => /^\/[a-zA-Z0-9]+\.(png|svg)$/i.test(logo.file_path))
       .sort((a,b) => (rank[a.iso_639_1] ?? 3) - (rank[b.iso_639_1] ?? 3) || b.vote_count - a.vote_count)
       .slice(0,6).map(logo => 'https://image.tmdb.org/t/p/original' + logo.file_path);
+  }
+
+  function russianAgeRating(value) {
+    const age = /^(?:age)?(0|6|12|16|18)\+?$/.exec(String(value ?? ''))?.[1];
+    return age == null ? '' : age + '+';
+  }
+
+  function editorialAgeRating(show) {
+    return seriesIdentity(show)?.ageRating || seriesEditorial[show.mazeId]?.ageRating;
+  }
+
+  async function loadTmdbAgeRating(show,signal,token,onChange) {
+    const id = await tmdbSeriesId(show,signal,token);
+    if (!id || signal.aborted) return;
+    const {results = []} = await tmdbRequest('tv/' + id + '/content_ratings',signal,token);
+    if (signal.aborted) return;
+    const ru = russianAgeRating(results.find(entry => entry.iso_3166_1 === 'RU')?.rating);
+    const us = results.find(entry => entry.iso_3166_1 === 'US')?.rating;
+    const tmdbAgeRating = ru || (/^TV-(Y|Y7|Y7-FV|G|PG|14|MA)$/.test(us) ? us + ' (США)' : '');
+    save(show,{tmdbAgeRating,tmdbAgeCheckedAt:Date.now()});
+    if (tmdbAgeRating) onChange();
   }
   const logoChecks = new Map();
   function transparentLogo(address) {
@@ -339,6 +363,10 @@ const seriesMetadata = (() => {
       })());
     }
     const token = tmdbToken();
+    const editorialAge = editorialAgeRating(show);
+    if (token && !editorialAge && !data.kpAgeRating && !fresh(data.tmdbAgeCheckedAt)) {
+      jobs.push(loadTmdbAgeRating(show,signal,token,onChange).catch(() => {}));
+    }
     if (token && !fresh(data.tmdbCheckedAt)) {
       jobs.push((async () => {
         const logos = await tmdbImages(show,signal,token);
@@ -391,7 +419,8 @@ const seriesMetadata = (() => {
         await logoJob;
       })());
     }
-    if (key && (!fresh(data.kpCheckedAt) || !Object.hasOwn(data,'kpDescription'))) {
+    if (key && (!fresh(data.kpCheckedAt) || !Object.hasOwn(data,'kpDescription') ||
+        (!editorialAge && !Object.hasOwn(data,'kpAgeRating')))) {
       jobs.push((async () => {
         const id = await kinopoiskId(show,signal).catch(() => null);
         if (signal.aborted) return;
@@ -401,6 +430,10 @@ const seriesMetadata = (() => {
           throw Error('Точное совпадение с Кинопоиском не найдено.');
         }
         const kpId = detail.kinopoiskId;
+        if (signal.aborted) return;
+        const kpAgeRating = russianAgeRating(detail.ratingAgeLimits);
+        save(show,{kpAgeRating});
+        if (kpAgeRating) onChange();
         const result = await kpRequest(kpId,'/seasons',key,signal);
         if (signal.aborted) return;
         const episodes = {};
@@ -519,7 +552,8 @@ const seriesMetadata = (() => {
       /\p{Script=Cyrillic}/u.test(show.description || '') ? {text:show.description} :
       data.wikiDescription ? {text:data.wikiDescription,source:data.wikiSource,label:'Википедия'} :
       data.translatedShow?.description ? {text:data.translatedShow.description,label:'Машинный перевод'} : {text:show.description || ''};
-    return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,description};
+    const ageRating = editorialAgeRating(show) || data.kpAgeRating || data.tmdbAgeRating || '';
+    return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,description,ageRating};
   }
   async function translateShow(show,signal,onChange) {
     const original = details(show);
