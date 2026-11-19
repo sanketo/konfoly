@@ -196,12 +196,34 @@ const seriesMetadata = (() => {
     const cachedTitle = read(show).enWikiTitle;
     if (cachedTitle) return cachedTitle;
     const imdb = show.imdb?.id;
-    const identity = /^tt\d{5,12}$/.test(imdb || '') ? 'wdt:P345 "' + imdb + '"' :
-      Number.isInteger(show.mazeId) ? 'wdt:P8600 "' + show.mazeId + '"' : '';
-    if (!identity) return '';
-    const rows = await wikidataRows('SELECT DISTINCT ?title WHERE { ?show ' + identity +
-      ' . ?page schema:about ?show ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?title . } LIMIT 2',signal);
-    return rows.length === 1 ? text(rows[0].title?.value,230) : '';
+    const property = /^tt\d{5,12}$/.test(imdb || '') ? 'P345' : 'P8600';
+    const id = property === 'P345' ? imdb : Number.isInteger(show.mazeId) && String(show.mazeId);
+    if (!id) return '';
+    async function byId() {
+      const rows = await wikidataRows('SELECT DISTINCT ?title WHERE { ?show wdt:' + property + ' "' + id +
+        '" . ?page schema:about ?show ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?title . } LIMIT 2',signal);
+      const article = rows.length === 1 && text(rows[0].title?.value,230);
+      if (!article) throw Error('Статья сериала не найдена.');
+      return article;
+    }
+    async function byTitle() {
+      const title = show.original || show.title;
+      const language = /\p{Script=Cyrillic}/u.test(title) ? 'ru' : 'en';
+      const url = new URL('https://www.wikidata.org/w/api.php');
+      const request = parameters => {
+        url.search = new URLSearchParams({format:'json',origin:'*',...parameters});
+        return json(url,{signal});
+      };
+      const {search} = await request({action:'wbsearchentities',search:title,language,type:'item',limit:'10'});
+      const ids = (search || []).map(item => item.id).filter(value => /^Q\d+$/.test(value));
+      if (!ids.length) throw Error('Статья сериала не найдена.');
+      const {entities} = await request({action:'wbgetentities',ids:ids.join('|'),props:'claims|sitelinks',sitefilter:'enwiki'});
+      const matches = Object.values(entities || {}).filter(entity => entity.claims?.[property]?.some(claim =>
+        claim.rank !== 'deprecated' && claim.mainsnak?.datavalue?.value === id)).map(entity => entity.sitelinks?.enwiki?.title).filter(Boolean);
+      if (matches.length !== 1) throw Error('Статья сериала не найдена.');
+      return text(matches[0],230);
+    }
+    return Promise.any([byId(),byTitle()]);
   }
   async function kinopoiskId(show,signal) {
     const known = seriesIdentity(show)?.kinopoiskId || read(show).kpId;

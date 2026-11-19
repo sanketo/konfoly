@@ -120,3 +120,18 @@ test('independent catalog searches series and accepts only correctly numbered ep
   assert.deepEqual(episodes.map(episode => episode.title),['Pilot']);
   assert.equal(episodes[0].image,'https://episodes.metahub.space/pilot.jpg');
 });
+
+test('episode guide resolves an exact IMDb match when Wikidata Query Service fails', async (context) => {
+  context.mock.method(globalThis,'fetch',async address => {
+    const url = new URL(address);
+    if (url.hostname === 'query.wikidata.org') throw Error('Network unavailable');
+    if (url.searchParams.get('action') === 'wbsearchentities') {
+      return Response.json({search:[{id:'Q1'},{id:'Q2'}]});
+    }
+    const entity = (id,title) => ({claims:{P345:[{rank:'normal',mainsnak:{datavalue:{value:id}}}]},
+      sitelinks:{enwiki:{title}}});
+    return Response.json({entities:{Q1:entity('tt11111111','Example (film)'),Q2:entity('tt22222222','Example (TV series)')}});
+  });
+  const show = {id:'imdb-tt22222222',title:'Example',imdb:{id:'tt22222222'}};
+  assert.equal(await seriesMetadata.wikiEpisodeArticle(show,new AbortController().signal),'Example (TV series)');
+});

@@ -27,18 +27,29 @@ async function guidePage(article,signal) {
   const {query} = await mediaWiki({action:'query',titles:article,redirects:'1',prop:'links',
     pltitles:candidates.join('|')},signal);
   const linkedGuide = query?.pages?.[0]?.links?.[0]?.title;
-  const {parse} = await mediaWiki({action:'parse',page:linkedGuide || article,redirects:'1',prop:'sections'},signal);
+  const root = linkedGuide || article;
+  const {parse} = await mediaWiki({action:'parse',page:root,redirects:'1',prop:'sections'},signal);
+  const fromSections = ({title,sections}) => sections.flatMap(section => {
+    const number = Number(/^Season\s+(\d+)(?:\s|$)/i.exec(section.line)?.[1]);
+    return number > 0 && /^\d+$/.test(section.index) ? [[number,{page:title,index:section.index}]] : [];
+  });
   const sections = new Map();
-  for (const section of parse.sections) {
-    const match = /^Season\s+(\d+)(?:\s|$)/i.exec(section.line);
-    if (match && Number(match[1]) > 0 && /^\d+$/.test(section.index)) sections.set(Number(match[1]),section.index);
+  for (const [number,section] of fromSections(parse)) sections.set(number,section);
+  if (!sections.size && linkedGuide) {
+    const {query:linked} = await mediaWiki({action:'query',titles:parse.title,prop:'links',plnamespace:'0',pllimit:'max'},signal);
+    const pages = (linked?.pages?.[0]?.links || []).map(link => link.title).filter(title =>
+      title.startsWith(parse.title + ' (season')).slice(0,10);
+    const outcomes = await Promise.allSettled(pages.map(page => mediaWiki({action:'parse',page,prop:'sections'},signal)));
+    for (const outcome of outcomes) if (outcome.status === 'fulfilled') {
+      for (const [number,section] of fromSections(outcome.value.parse)) sections.set(number,section);
+    }
   }
   if (!sections.size) {
     const section = parse.sections.find(item => /^Episodes$/i.test(item.line) && /^\d+$/.test(item.index));
-    if (section) sections.set(1,section.index);
+    if (section) sections.set(1,{page:parse.title,index:section.index});
   }
   if (!sections.size || sections.size > 100) throw Error('На странице нет списка сезонов.');
-  return {page:parse.title,sections};
+  return sections;
 }
 
 function readSeason(markup,season,source,singleSeason) {
@@ -66,22 +77,28 @@ function readSeason(markup,season,source,singleSeason) {
   return [...episodes.values()];
 }
 
-async function loadWikiEpisodes(article,signal,onSeasons,preferredSeason) {
-  const {page,sections} = await guidePage(article,signal);
-  onSeasons(0,sections.size);
-  const source = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(page.replaceAll(' ','_'));
-  const pending = [...sections].sort(([a],[b]) => Number(b === preferredSeason) - Number(a === preferredSeason));
+const guides = new Map();
+
+async function loadWikiEpisodes(article,signal,onSeasons,requestedSeason) {
+  const sections = guides.get(article) || await guidePage(article,signal);
+  guides.set(article,sections);
+  const seasons = [...sections.keys()].sort((a,b) => a-b);
+  const pending = [...sections].filter(([number]) => !requestedSeason || number === requestedSeason);
+  if (!pending.length) throw Error('Сезон отсутствует в списке эпизодов.');
+  const total = pending.length;
+  onSeasons(0,total,seasons);
   const episodes = [];
   let completed = 0;
   async function loadSections() {
     while (pending.length && !signal.aborted) {
-      const [season,section] = pending.shift();
-      const {parse} = await mediaWiki({action:'parse',page,section,prop:'text',disableeditsection:'1'},signal);
+      const [season,{page,index}] = pending.shift();
+      const source = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(page.replaceAll(' ','_'));
+      const {parse} = await mediaWiki({action:'parse',page,section:index,prop:'text',disableeditsection:'1'},signal);
       episodes.push(...readSeason(parse.text,season,source,sections.size === 1));
-      onSeasons(++completed,sections.size);
+      onSeasons(++completed,total,seasons);
     }
   }
-  await Promise.all(Array.from({length:Math.min(5,sections.size)},loadSections));
+  await Promise.all(Array.from({length:Math.min(5,total)},loadSections));
   if (signal.aborted) throw signal.reason;
   return episodes;
 }

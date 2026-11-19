@@ -60,6 +60,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   let metadataSession;
   let episodeDetails;
   const refreshEpisodeLists = new WeakSet();
+  const seasonIndexes = new Map();
+  const partialSeasons = new WeakMap();
 
   function compactImport(show) {
     const {id,mazeId,title,language,years,image,description,source,imdb} = show;
@@ -130,8 +132,14 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         if (Date.now() - cached.savedAt > 86400000) refreshEpisodeLists.add(show);
       }
     }
-    if (!Array.isArray(show.episodes)) return {page:'series',show,loadEpisodes:true,overview:!parts[2] && !parts[3],
-      requestedSeason:Number(parts[2] || parts[3]) || undefined};
+    if (!Array.isArray(show.episodes)) {
+      const requestedSeason = Number(parts[2] || parts[3]) || undefined;
+      const available = partialSeasons.get(show)?.get(requestedSeason);
+      if (!available) return {page:'series',show,loadEpisodes:true,overview:!parts[2] && !parts[3],requestedSeason};
+      const view = {...show,episodes:available,partialCatalog:true};
+      return parts[2] ? {page:'series',show:view,season:requestedSeason} :
+        {page:'series',show:view,episode:findEpisode(view,requestedSeason,parts[4])};
+    }
     if (parts[2] === 'all') return {page:'series',show,season:0};
     const season = Number(parts[2]);
     if (season && show.episodes.some(item => item.season === season)) return {page:'series',show,season};
@@ -200,8 +208,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   }
   function showYears(show) { return seriesEditorial[show.mazeId]?.years || show.years; }
   function caption(show,includeYears=true) {
-    const count = show.episodes?.length ?? show.episodeCount;
-    const seasons = show.episodes ? new Set(show.episodes.map(item => item.season)).size : show.seasonCount;
+    const count = show.partialCatalog ? show.episodeCount : show.episodes?.length ?? show.episodeCount;
+    const seasons = seasonsFor(show).length || show.seasonCount;
     return [includeYears && showYears(show),seasons && 'Сезонов ' + seasons,count && 'Серий ' + count].filter(Boolean).join(' · ');
   }
   function showHue(show) {
@@ -241,8 +249,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   function mazeImage(image) {
     return /^https:\/\/static\.tvmaze\.com\//.test(image?.medium || '') ? image.medium : '';
   }
-  async function fetchMazeEpisodes(mazeId,signal) {
-    const episodes = (await tvmaze('shows/' + mazeId + '/episodes',signal))
+  async function fetchMazeEpisodes(path,signal) {
+    const episodes = (await tvmaze(path,signal))
       .filter(item => Number.isInteger(item.season) && Number.isInteger(item.number))
       .map(item => ({season:item.season,episode:item.number,title:item.name,mazeId:item.id,airdate:item.airdate,
         image:mazeImage(item.image),runtime:item.runtime,synopsis:seriesMetadata.plain(item.summary)}));
@@ -251,26 +259,46 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   }
   async function fetchEpisodes(show,signal,{onSeasons,preferredSeason}={}) {
     const jobs = [];
-    if (show.mazeId) jobs.push(fetchMazeEpisodes(show.mazeId,signal).then(episodes => ({episodes})));
+    if (show.mazeId) jobs.push(fetchMazeEpisodes('shows/' + show.mazeId + '/episodes',signal).then(episodes => ({episodes})));
     if (show.imdb?.id) jobs.push(loadCinemetaSeries(show.imdb.id,signal));
+    if (onSeasons && show.mazeId) {
+      const seasonRequest = (async () => {
+        const rows = await tvmaze('shows/' + show.mazeId + '/seasons',signal);
+        const seasons = rows.filter(item => Number.isInteger(item.number) && item.number > 0 && Number.isInteger(item.id));
+        if (signal.aborted) throw signal.reason;
+        if (seasons.length) onSeasons(0,0,seasons.map(item => item.number));
+        const selected = seasons.find(item => item.number === preferredSeason);
+        if (!selected) throw Error('Сезон отсутствует в списке TVmaze.');
+        const episodes = await fetchMazeEpisodes('seasons/' + selected.id + '/episodes',signal);
+        return {episodes,partialSeason:preferredSeason};
+      })();
+      if (preferredSeason) jobs.push(seasonRequest);
+      else void seasonRequest.catch(() => {});
+    }
     if (onSeasons) jobs.push((async () => {
       await new Promise(resolve => setTimeout(resolve,1000));
       if (signal.aborted) throw signal.reason;
       const article = await seriesMetadata.wikiEpisodeArticle(show,signal);
       if (!article) throw Error('Подтверждённая страница сериала не найдена.');
       const episodes = await loadWikiEpisodes(article,signal,onSeasons,preferredSeason);
-      if (show.episodeCount && episodes.length < show.episodeCount) throw Error('Список эпизодов неполный.');
-      return {episodes};
+      if (!preferredSeason && show.episodeCount && episodes.length < show.episodeCount) throw Error('Список эпизодов неполный.');
+      return {episodes,partialSeason:preferredSeason};
     })());
-    const {episodes,poster,description,years} = await Promise.any(jobs);
+    const {episodes,poster,description,years,partialSeason} = await Promise.any(jobs.map(async job => {
+      const result = await job;
+      if (preferredSeason && !result.episodes.some(item => item.season === preferredSeason)) {
+        throw Error('В источнике нет выбранного сезона.');
+      }
+      return result;
+    }));
     episodes.sort((a,b) => a.season - b.season || a.episode - b.episode);
     if (!signal.aborted) {
       show.image ||= poster;
       show.description ||= plainText(description);
       show.years ||= years;
-      rememberEpisodes(catalogKey(show),episodes);
+      if (!partialSeason) rememberEpisodes(catalogKey(show),episodes);
     }
-    return episodes;
+    return {episodes,partialSeason};
   }
   function matchesCatalog(show,raw) {
     return (Number.isInteger(raw.id) && show.mazeId === raw.id) ||
@@ -711,12 +739,15 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const sectionTitle = make('div','section-title');
     sectionTitle.append(make('h2',null,'Выбрать сезон'));
     const tiles = make('div','season-tiles');
-    for (const season of first ? seasonsFor(show) : []) {
-      const tile = link(undefined,seasonPath(show,season),'season-tile');
-      const count = show.episodes.filter(item => item.season === season).length;
-      tile.setAttribute('aria-label','Сезон ' + season + ' · ' + count + ' серий');
-      tile.append(make('strong',null,String(season).padStart(2,'0')),make('small',null,'Сезон · ' + count));
-      tiles.append(tile);
+    function updateSeasonTiles() {
+      tiles.replaceChildren(...seasonsFor(show).map(season => {
+        const tile = link(undefined,seasonPath(show,season),'season-tile');
+        const count = show.episodes?.filter(item => item.season === season).length;
+        tile.setAttribute('aria-label','Сезон ' + season + (count ? ' · ' + count + ' серий' : ''));
+        tile.append(make('strong',null,String(season).padStart(2,'0')),make('small',null,count ? 'Сезон · ' + count : 'Сезон'));
+        return tile;
+      }));
+      section.hidden = !tiles.childElementCount;
     }
     section.append(sectionTitle,tiles);
     const status = make('p','muted',show.sessionOnly ? 'Сериал добавлен до закрытия вкладки. Браузер не сохранил каталог.' : '');
@@ -746,12 +777,16 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       actions.append(translateShow);
     }
     updateShowDetails();
-    $('series').replaceChildren(hero,...(first ? [section] : []),status);
+    updateSeasonTiles();
+    $('series').replaceChildren(hero,section,status);
     hydrate(show,updateShowDetails,status);
     void seriesMetadata.translateIfReady(show,null,metadataSession.signal,updateShowDetails);
+    return updateSeasonTiles;
   }
   function seasonsFor(show) {
-    return [...new Set(show.episodes.map(item => item.season))];
+    const loaded = (show.episodes || []).map(item => item.season);
+    const available = !show.episodes || show.partialCatalog ? seasonIndexes.get(show.id) || [] : [];
+    return [...new Set([...loaded,...available])].sort((a,b) => a-b);
   }
   function renderSeason(show,season) {
     const section = make('section','library-catalog');
@@ -1221,7 +1256,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const index = show.episodes.indexOf(item);
     for (const [offset,id] of [[-1,'previous'],[1,'next']]) {
       const button = get(id);
-      const next = show.episodes[index + offset];
+      let next = show.episodes[index + offset];
+      if (!next && offset === 1 && show.partialCatalog && seasonsFor(show).includes(item.season + 1)) {
+        next = {season:item.season+1,episode:1};
+      }
       button.disabled = !next;
       if (next) button.onclick = () => { location.hash = watchPath(show,next); };
     }
@@ -1381,7 +1419,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const panel = $('series');
       const loading = make('p','muted','Загружаем эпизоды…');
       loading.setAttribute('role','status');
-      if (route.overview) renderShow(route.show,loading);
+      let updateSeasonTiles;
+      if (route.overview) updateSeasonTiles = renderShow(route.show,loading);
       else panel.replaceChildren(make('h1','page-title',seriesDisplayTitle(route.show)),loading);
       const signal = metadataSession.signal;
       const controller = new AbortController();
@@ -1399,13 +1438,23 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const timer = setTimeout(() => { abort(); showFailure(); },20000);
       void fetchEpisodes(route.show,controller.signal,{
         preferredSeason:route.requestedSeason,
-        onSeasons:(loaded,total) => {
-          if (!controller.signal.aborted) loading.textContent = 'Загружаем сезоны · ' + loaded + ' из ' + total;
+        onSeasons:(loaded,total,seasons) => {
+          if (controller.signal.aborted) return;
+          const previous = seasonIndexes.get(route.show.id) || [];
+          const merged = [...new Set([...previous,...seasons])];
+          seasonIndexes.set(route.show.id,merged);
+          if (merged.length !== previous.length) updateSeasonTiles?.();
+          if (total) loading.textContent = 'Загружаем сезоны · ' + loaded + ' из ' + total;
         }
-      }).then(episodes => {
+      }).then(({episodes,partialSeason}) => {
         if (controller.signal.aborted) return;
-        route.show.episodes = episodes;
-        if (imported.includes(route.show)) persistImports(imported);
+        if (partialSeason) {
+          if (!partialSeasons.has(route.show)) partialSeasons.set(route.show,new Map());
+          partialSeasons.get(route.show).set(partialSeason,episodes);
+        } else {
+          route.show.episodes = episodes;
+          if (imported.includes(route.show)) persistImports(imported);
+        }
         renderCurrentRoute();
       }).catch(showFailure).finally(() => {
         clearTimeout(timer);
@@ -1422,7 +1471,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       renderShow(route.show);
       if (refreshEpisodeLists.delete(route.show)) {
         const signal = metadataSession.signal;
-        void fetchEpisodes(route.show,signal).then(episodes => {
+        void fetchEpisodes(route.show,signal).then(({episodes}) => {
           if (signal.aborted || episodes.length < route.show.episodes.length) return;
           route.show.episodes = episodes;
           renderCurrentRoute();
