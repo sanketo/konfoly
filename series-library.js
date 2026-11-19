@@ -375,7 +375,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         const card = make('div','library-saved-card');
         const name = seriesDisplayTitle(show);
         const selected = favoriteAt(show) > 0;
-        const favorite = make('button','library-card-button library-favorite',selected ? '★' : '☆');
+        const favorite = make('button','library-card-button library-favorite');
+        const star = make('span','library-favorite-star',selected ? undefined : '☆');
+        star.setAttribute('aria-hidden','true');
+        favorite.append(star);
         const remove = make('button','library-card-button library-remove');
         favorite.type = remove.type = 'button';
         favorite.title = selected ? 'Убрать из избранного' : 'Добавить в избранное';
