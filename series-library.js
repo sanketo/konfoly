@@ -9,6 +9,7 @@ import {readLocal, writeLocal} from './storage.js';
 import {$, make} from './dom.js';
 import {bindPlaybackMemory, playbackTime, readPlaybackMemory, watchPlaybackHealth} from './video-progress.js';
 import {ratingBadge, setPersonalRatingButton} from './ratings.js';
+import {externalRatingData} from './ratings-data.js';
 import {seriesImportance} from './series-importance.js';
 import {importanceLabels} from './importance.js';
 import {platform} from './platform.js';
@@ -240,10 +241,31 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     return null;
   }
   function showYears(show) { return seriesEditorial[show.mazeId]?.years || show.years; }
-  function caption(show,includeYears=true) {
+  function episodeCounts(show) {
     const count = show.partialCatalog ? show.episodeCount : show.episodes?.length ?? show.episodeCount;
     const seasons = seasonsFor(show).length || show.seasonCount;
+    return {seasons,count};
+  }
+  function caption(show,includeYears=true) {
+    const {seasons,count} = episodeCounts(show);
     return [includeYears && showYears(show),seasons && 'Сезонов ' + seasons,count && 'Серий ' + count].filter(Boolean).join(' · ');
+  }
+  function savedCardFacts(show) {
+    const {seasons,count} = episodeCounts(show);
+    const years = showYears(show);
+    const age = seriesMetadata.ageRating(show);
+    const facts = make('span','library-card-facts');
+    for (const [value,label] of [
+      [years,years ? 'Годы выхода: ' + years : 'Годы выхода не указаны'],
+      [age.replace(/ \([^)]*\)$/,''),age ? 'Возрастной рейтинг: ' + age : 'Возрастной рейтинг не указан'],
+      [seasons ? 'Сез. ' + seasons : 'Сез. —',seasons ? 'Сезонов: ' + seasons : 'Число сезонов не указано'],
+      [count ? 'Сер. ' + count : 'Сер. —',count ? 'Серий: ' + count : 'Число серий не указано']
+    ]) {
+      const field = make('span',null,value || '—');
+      field.title = label;
+      facts.append(field);
+    }
+    return facts;
   }
   function showHue(show) {
     if (show === mentalist) return 22;
@@ -264,11 +286,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (themeElement) title.title = name;
     copy.append(title);
     if (show.preview && name !== show.title) copy.append(make('span','library-tile-original',show.title));
-    if (facts) {
-      const metadata = make('span','muted',facts);
-      if (themeElement) metadata.title = facts;
-      copy.append(metadata);
-    }
+    if (themeElement) copy.append(savedCardFacts(show));
+    else if (facts) copy.append(make('span','muted',facts));
     if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
     const themed = themeElement || tile;
     themed.style.setProperty('--tile-hue',showHue(show));
@@ -365,12 +384,49 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   }
   function renderLibrary(focusSearch) {
     const grid = $('library-grid');
+    const session = new AbortController();
+    const requestedRatings = new Map();
+    const cardRatings = new WeakMap();
+    const ratingObserver = typeof IntersectionObserver === 'function' ? new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        ratingObserver.unobserve(entry.target);
+        cardRatings.get(entry.target)?.();
+      }
+    }) : null;
+    function cardScore(show) {
+      const source = show.imdb?.id ? show : {...show,imdb:{id:seriesIdentity(show)?.imdbId}};
+      const rating = make('span','library-card-rating');
+      const value = make('strong');
+      rating.append(make('span',null,'IMDb'),value);
+      const getRating = () => show === mentalist ? externalRatingData.series.imdb : seriesMetadata.imdbRating(source);
+      const update = () => {
+        const score = getRating()?.score;
+        const formatted = score == null ? '—' : score.toFixed(1).replace('.',',');
+        value.textContent = formatted;
+        rating.title = score == null ? 'Оценка IMDb не указана' : 'IMDb ' + formatted + ' из 10';
+      };
+      update();
+      if (getRating()?.score != null || !validImdb(source.imdb?.id)) return rating;
+      const load = () => {
+        if (!requestedRatings.has(show.id)) {
+          requestedRatings.set(show.id,seriesMetadata.loadImdbRating(source,session.signal,update).catch(() => {}));
+        }
+        void requestedRatings.get(show.id).then(update);
+      };
+      if (ratingObserver) {
+        cardRatings.set(rating,load);
+        ratingObserver.observe(rating);
+      } else load();
+      return rating;
+    }
     const feedback = $('library-status');
     const undo = $('library-undo');
     feedback.textContent = '';
     undo.hidden = true;
     undo.onclick = null;
     function renderSavedGrid(focusId) {
+      ratingObserver?.disconnect();
       const states = catalogStates();
       const pinned = readLocal(pinnedKey);
       const favoriteAt = show => states[show.id]?.favoriteAt || 0;
@@ -382,7 +438,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         const name = seriesDisplayTitle(show);
         const selected = favoriteAt(show) > 0;
         const favorite = make('button','library-card-button library-favorite');
-        const star = make('span','library-favorite-star',selected ? undefined : '☆');
+        const star = make('span','library-favorite-star');
         star.setAttribute('aria-hidden','true');
         favorite.append(star);
         const remove = make('button','library-card-button library-remove');
@@ -412,7 +468,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         };
         if (show.id === focusId) focusButton = favorite;
         const actions = make('div','library-card-actions');
-        actions.append(favorite,remove);
+        actions.append(cardScore(show),favorite,remove);
         card.append(showCard(show,null,card),actions);
         return card;
       });
@@ -440,7 +496,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     status.textContent = '';
     results.replaceChildren();
     if (focusSearch) input.focus({preventScroll:true});
-    const session = new AbortController();
     let operation, debounce;
     async function run(action,onFailure,timeout=8000) {
       operation?.abort();
@@ -593,7 +648,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (!event.isComposing && input.value.trim().length >= 2) debounce = setTimeout(search,300);
     }
     input.oninput = input.oncompositionend = scheduleSearch;
-    cleanup = () => { clearTimeout(debounce); session.abort(); operation?.abort(); };
+    cleanup = () => { clearTimeout(debounce); ratingObserver?.disconnect(); session.abort(); operation?.abort(); };
   }
   function imdbLink(record,suffix='ratings/') {
     return 'https://www.imdb.com/title/' + record.id + '/' + suffix;
