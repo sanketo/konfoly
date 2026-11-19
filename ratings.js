@@ -39,14 +39,14 @@ function episodeRatingTarget(episode) {
   return {id:'episode:' + key(episode),label:'Сезон ' + episode.season + ' · Серия ' + episode.episode};
 }
 
-function setPersonalRatingButton(button,target) {
-  const score = readLocal(showRatingKey + '-ratings-v1')[target.id];
+function setPersonalRatingButton(button,target,showId=showRatingKey) {
+  const score = readLocal(showId + '-ratings-v1')[target.id];
   button.textContent = Number.isInteger(score) ? 'Моя оценка · ' + score + '/10' : 'Моя оценка';
-  button.onclick = () => openPersonalRating(target,button);
+  button.onclick = () => openPersonalRating(target,button,showId);
 }
 
-function openPersonalRating(target,opener) {
-  const storageKey = showRatingKey + '-ratings-v1';
+function openPersonalRating(target,opener,showId=showRatingKey) {
+  const storageKey = showId + '-ratings-v1';
   const stored = readLocal(storageKey);
   const selected = stored[target.id];
   $('rating-target').textContent = target.label;
@@ -56,7 +56,7 @@ function openPersonalRating(target,opener) {
     else values[target.id] = score;
     writeLocal(storageKey,values);
     $('rating-dialog').close();
-    setPersonalRatingButton(opener,target);
+    setPersonalRatingButton(opener,target,showId);
   };
   const slider = $('rating-slider');
   function preview() {

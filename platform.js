@@ -41,9 +41,8 @@ const platform = (() => {
     get theme(){return telegram?.colorScheme},
     // A launch parameter selects an episode, never an identity or permission.
     get start(){return telegram?.initDataUnsafe?.start_param || query.get('tgWebAppStartParam') || launch.get('tgWebAppStartParam')},
-    applyChrome(){
+    applyChrome(color){
       if (!telegram) return;
-      const color = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
       if (color) {
         telegram.setBackgroundColor?.(color);
         if (telegram.isVersionAtLeast?.('6.9')) telegram.setHeaderColor?.(color);

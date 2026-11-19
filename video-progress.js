@@ -1,7 +1,7 @@
 const playbackStoreKey='mentalist-progress-v1';
-function readPlaybackMemory(){
+function readPlaybackMemory(storeKey=playbackStoreKey){
  try{
-  const data=JSON.parse(localStorage.getItem(playbackStoreKey));if(!data||typeof data!=='object')return {last:null};
+  const data=JSON.parse(localStorage.getItem(storeKey));if(!data||typeof data!=='object')return {last:null};
   let last=data.last;
   if(last&&!Number.isFinite(last.time)&&data.entries){const entry=data.entries[last.season+':'+last.episode];if(entry)last={...last,...entry}}
   return {last:last&&Number.isFinite(last.time)?last:null};
@@ -13,12 +13,12 @@ function bindPlaybackMemory(video,context,onStatus=()=>{},options={}){
  function save(force=false){
   if(!ready||!hasPlayed||!Number.isFinite(video.duration)||video.duration<=0||!Number.isFinite(video.currentTime))return;
   const credits=Math.min(60,video.duration*.05);
-  const watchedAt=Math.min(context.combined?4800:2400,video.duration-credits);
+  const watchedAt=Math.min(options.completionTime ?? (context.combined?4800:2400),video.duration-credits);
   const justCompleted=!completed&&(video.ended||video.currentTime>=watchedAt);
   if(justCompleted)completed=true;
   const now=Date.now();if(!force&&!justCompleted&&now-lastSave<4000)return;lastSave=now;
   const last={season:context.season,episode:context.episode,voice:context.voice||null,source:context.source||'native',time:completed?0:video.currentTime,duration:video.duration,completed,updatedAt:now};
-  try{localStorage.setItem(playbackStoreKey,JSON.stringify({last}));options.onSave?.(last)}catch{onStatus('Не удалось сохранить позицию в этом браузере.')}
+  try{localStorage.setItem(options.storeKey||playbackStoreKey,JSON.stringify({last}));options.onSave?.(last)}catch{onStatus('Не удалось сохранить позицию в этом браузере.')}
  }
  function loaded(){
   ready=true;const time=Number(options.resumeTime)||0;

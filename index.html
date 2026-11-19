@@ -4,34 +4,60 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#151315">
-<title>Konfoly · Менталист</title>
-<link rel="stylesheet" href="style.css?v=28">
+<title>konfoly · Сериалы</title>
+<script>
+if (!location.hash || location.hash === '#library') document.documentElement.dataset.startLibrary = '';
+</script>
+<link rel="stylesheet" href="style.css?v=40">
 <script defer src="episodes.js?v=13"></script>
 <script defer src="episode-titles-ru.js?v=24"></script>
 <script defer src="importance.js?v=13"></script>
-<script defer src="providers.js?v=24"></script>
-<script defer src="platform.js?v=15"></script>
-<script defer src="video-progress.js?v=19"></script>
+<script defer src="providers.js?v=40"></script>
+<script defer src="platform.js?v=30"></script>
+<script defer src="video-progress.js?v=34"></script>
 <script defer src="video-controls.js?v=19"></script>
 <script defer src="video-ambient.js?v=23"></script>
 <script defer src="player-ui.js?v=22"></script>
 <script defer src="telegram-sync.js?v=15"></script>
 <script defer src="select-ui.js?v=16"></script>
 <script defer src="ratings-data.js?v=21"></script>
-<script defer src="ratings.js?v=28"></script>
-<script defer src="app.js?v=28"></script>
+<script defer src="ratings.js?v=29"></script>
+<script defer src="series-data.js?v=40"></script>
+<script defer src="series-titles-ru.js?v=35"></script>
+<script defer src="series-importance.js?v=36"></script>
+<script defer src="series-metadata.js?v=40"></script>
+<script defer src="series-library.js?v=40"></script>
+<script defer src="app.js?v=40"></script>
 </head>
 <body>
 <div id="snow-field" class="snow-field" aria-hidden="true" hidden></div>
 <a class="skip" href="#content">К содержанию</a>
-<header class="top"><a href="#home" class="brand"><span aria-hidden="true"><img src="assets/red-john.png" width="142" height="192" alt=""></span> Konfoly</a><button id="theme-toggle" class="icon-button" aria-label="Переключить светлую и тёмную тему">◐</button></header>
+<header class="top"><a href="#library" class="brand"><span aria-hidden="true"><img src="assets/red-john.png" width="142" height="192" alt=""></span> konfoly</a><button id="theme-toggle" class="icon-button" aria-label="Переключить светлую и тёмную тему">◐</button></header>
 <nav class="navigation" aria-label="Основная навигация">
-<a href="#home"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg></span>Главная</a>
-<a href="#catalog"><span aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 10v9"/></svg></span>Эпизоды</a>
-<a href="#watch"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5l12 7-12 7z"/></svg></span>Плеер</a>
+<a href="#library" data-library-nav><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg></span>Сериалы</a>
+<a href="#catalog" data-catalog-nav><span aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 10v9"/></svg></span>Эпизоды</a>
+<a href="#watch" data-watch-nav><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5l12 7-12 7z"/></svg></span>Плеер</a>
 <a href="#settings"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="17" r="2"/></svg></span>Настройки</a>
 </nav>
 <main id="content" tabindex="-1">
+<section id="library" class="page" hidden>
+<h1 class="page-title">Сериалы</h1>
+<div id="library-grid" class="library-grid">
+<a class="library-tile" href="#home"><span class="library-poster"><img src="assets/mentalist-poster.webp?v=20" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Менталист</strong><span class="muted">2008–2015 · Сезонов 7 · Серий 151</span></span></a>
+<a class="library-tile" href="#series/breaking-bad"><span class="library-poster"><img src="https://static.tvmaze.com/uploads/images/medium_portrait/501/1253519.jpg" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Во все тяжкие</strong><span class="muted">2008–2013 · Сезонов 5 · Серий 62</span></span></a>
+<a class="library-tile" href="#series/interns"><span class="library-poster"><img src="assets/interns-poster.jpg" alt="" decoding="async"></span><span class="library-tile-copy"><strong>Интерны</strong><span class="muted">2010–2016 · Сезонов 4 · Серий 279</span></span></a>
+</div>
+<section class="library-add-panel">
+<h2>Добавить сериал</h2>
+<form id="library-add-form" class="library-add">
+<input type="search" required placeholder="Название сериала" aria-label="Название сериала">
+<button type="submit" class="filled">Найти</button>
+</form>
+<p id="library-add-status" class="muted" role="status"></p>
+<div id="library-add-results" class="library-results"></div>
+</section>
+</section>
+<section id="series" class="page" hidden></section>
 <section id="home" class="page home-page">
 <div class="hero">
 <div class="hero-copy">
@@ -62,24 +88,47 @@
 </div>
 <p id="results" class="muted" role="status"></p><div id="episodes" class="episodes"></div>
 </section>
-<section id="watch" class="page" hidden>
-<div class="section-title watch-heading"><div><p id="episode-number" class="eyebrow"></p><h1 id="episode-title" class="page-title"></h1><p id="episode-title-original" class="muted" lang="en" hidden></p></div><button id="open-sources" class="tonal">Источники</button></div>
+<section id="watch" class="page watch-page" hidden></section>
+<template id="watch-layout">
+<div class="section-title watch-heading"><div><p id="episode-number" class="eyebrow"></p><h1 id="episode-title" class="page-title"></h1><p id="episode-title-original" class="muted episode-original" lang="en" hidden></p></div><button id="open-sources" class="tonal">Источники</button></div>
 <button id="watch-continue" class="resume-action tonal" hidden>Продолжить просмотр</button>
 <div class="watch-stage"><canvas class="video-ambient" width="48" height="27" aria-hidden="true"></canvas><div id="screen" class="screen"></div></div>
 <div class="watch-status"><span id="source-status" role="status"></span><span id="quality-status"></span></div>
+<div class="watch-track-controls"><div id="watch-dub" hidden></div><div id="watch-audio" hidden></div></div>
 <div class="watch-nav"><button id="previous" class="tonal">← Предыдущая</button><button id="next" class="tonal">Следующая →</button></div>
-<div class="watch-description"><div class="rating-row"><div id="episode-ratings" class="rating-list"></div><button id="rate-episode" class="rating-action">Моя оценка</button></div><p id="episode-description"></p><div class="watch-actions"><a id="share-link" href="#watch">Ссылка на серию</a><button id="mark-watched" class="tonal">Отметить просмотренной</button></div><p class="watch-shortcuts muted"><kbd>←</kbd> <kbd>→</kbd> Перемотка на 10 секунд <span>·</span> <kbd>Пробел</kbd> Пауза <span>·</span> Удержание 2×</p><p class="watch-touch-hint muted">Удерживай левый или правый край видео, чтобы включить 2×.</p></div>
+<div class="watch-description"><div class="rating-row"><div id="episode-ratings" class="rating-list"></div><button id="rate-episode" class="rating-action">Моя оценка</button></div><p id="episode-description" class="episode-description"></p><div class="watch-actions"><a id="share-link" href="#watch">Ссылка на серию</a><button id="mark-watched" class="tonal">Отметить просмотренной</button></div><p class="watch-shortcuts muted"><kbd>←</kbd> <kbd>→</kbd> Перемотка на 10 секунд <span>·</span> <kbd>Пробел</kbd> Пауза <span>·</span> Удержание 2×</p><p class="watch-touch-hint muted">Удерживай левый или правый край видео, чтобы включить 2×.</p></div>
 <details class="watch-description plot-details" id="episode-plot"><summary>Сюжет и развязка <span>Спойлеры</span></summary><div id="plot-content"></div></details>
-</section>
+</template>
 <section id="settings" class="page" hidden>
 <h1 class="page-title">Настройки</h1>
 <div class="settings-grid">
 <section class="settings-card"><h2>Оформление</h2><div class="select-field"><label for="theme">Тема</label><select id="theme"><option value="auto">Как в системе</option><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div><label class="switch-row"><input type="checkbox" id="new-year"> Новогодний режим</label></section>
 <section class="settings-card"><h2>Сюжет</h2><label class="switch-row"><input type="checkbox" id="spoilers"> Раскрывать спойлеры на странице серии</label><p class="muted">Блок «Сюжет и развязка» будет открыт по умолчанию.</p></section>
 <section class="settings-card"><h2>Просмотр</h2><button id="settings-sources" class="tonal">Настроить источники</button><p class="muted">Настройки сохраняются на этом устройстве.</p><p id="sync-status" class="muted" role="status">История сохраняется в этом браузере.</p></section>
+<section class="settings-card"><h2>Русские названия и логотипы</h2>
+<form id="kinopoisk-key-form" class="source-form">
+<label>Ключ Kinopoisk API Unofficial <input id="kinopoisk-key" type="password" autocomplete="off" placeholder="Ключ API"></label>
+<p class="muted">Загружает русские названия, описания и логотипы, когда они есть в каталоге. Ключ действует в этой вкладке. Очисти поле и сохрани, чтобы отключить новые запросы.</p>
+<button class="tonal" type="submit">Сохранить ключ</button>
+<p id="kinopoisk-key-status" class="muted" role="status"></p>
+</form></section>
+<section class="settings-card"><h2>Общий видеоисточник</h2>
+<form id="episode-endpoint-form" class="source-form">
+<label>HTTPS-адрес API <input id="episode-endpoint-url" type="text" inputmode="url" placeholder="https://…" autocomplete="off"></label>
+<p class="muted">Один адрес на все сериалы. Сайт передаёт IMDb, TVmaze, сезон и серию. Ответ API должен содержать прямой HTTPS-адрес в поле <code>url</code>. Очисти поле, чтобы отключить источник.</p>
+<button type="submit" class="tonal">Сохранить адрес</button>
+<p id="episode-endpoint-status" role="status" class="muted"></p>
+</form></section>
+<section class="settings-card"><h2>Дополнение Stremio</h2>
+<form id="stremio-source-form" class="source-form">
+<label>Ссылка на дополнение <input id="stremio-source-url" type="text" inputmode="url" placeholder="https://…/manifest.json" autocomplete="off"></label>
+<p class="muted">Подключается один раз для всех сериалов с IMDb ID. Наш плеер принимает прямые MP4 и HLS из дополнения. Очисти поле, чтобы отключить его.</p>
+<button class="tonal" type="submit">Сохранить дополнение</button>
+<p id="stremio-source-status" class="muted" role="status"></p>
+</form></section>
 </div>
 </section>
-<footer>Konfoly <a href="https://www.tvmaze.com/shows/116/the-mentalist" target="_blank" rel="noopener noreferrer">Каталог и кадры · TVmaze ↗</a></footer>
+<footer>konfoly <a href="https://www.tvmaze.com/shows/116/the-mentalist" target="_blank" rel="noopener noreferrer">Каталог и кадры · TVmaze ↗</a></footer>
 </main>
 <dialog id="sources-dialog" class="sheet" aria-labelledby="sources-title">
 <div class="sheet-heading"><h2 id="sources-title">Источники</h2><form method="dialog"><button class="icon-button" aria-label="Закрыть">×</button></form></div>
@@ -99,6 +148,8 @@
 <p class="muted">Можно указать ссылку на весь сериал или шаблон с {season} и {episode}.</p>
 <button class="filled" type="submit">Сохранить и открыть Alloha</button>
 </form>
+<button id="select-episode-folder" type="button" class="tonal" hidden>Подключить папку серий</button>
+<input id="episode-folder" type="file" webkitdirectory hidden>
 <input id="file" type="file" accept="video/*,.mp4,.webm" hidden>
 <p id="source-error" role="alert"></p>
 </dialog>
