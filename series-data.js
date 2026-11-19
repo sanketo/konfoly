@@ -104,19 +104,22 @@ const interns = {
 
 const seriesEditorial = {
   555:{
-    title:'Аватар: Легенда об Аанге',years:'2005–2008',logo:'assets/avatar-airbender-logo.svg',
+    title:'Аватар: Легенда об Аанге',original:'Avatar: The Last Airbender',years:'2005–2008',logo:'assets/avatar-airbender-logo.svg',
     description:'Катара и Сокка находят во льдах Аанга, последнего мага воздуха. Он оказывается Аватаром и должен овладеть всеми четырьмя стихиями, чтобы остановить Народ Огня и вернуть миру равновесие.',
     source:'https://paramountglobalcontent.com/title/avatar-the-last-airbender',label:'Paramount'
   },
-  38753:{title:'Аватар: Легенда об Аанге'},
-  83073:{title:'Аватар: Семь убежищ'},
-  44776:{title:'Фонари',logo:'assets/lanterns-logo.png'},
-  2178:{title:'Охотники',episodes:Object.fromEntries([
+  38753:{title:'Аватар: Легенда об Аанге',original:'Avatar: The Last Airbender',years:'2024'},
+  83073:{title:'Аватар: Семь убежищ',original:'Avatar: Seven Havens',years:'2026'},
+  44776:{title:'Фонари',original:'Lanterns',years:'2026',logo:'assets/lanterns-logo.png'},
+  2178:{title:'Охотники',original:'Hunters',years:'2016',seasonCount:1,episodeCount:13,episodes:Object.fromEntries([
     'Начало и конец','Послания','Орлеанская дева','Любовь и насилие',
     'Её тело в моей душе','Солдат из бункера','Поцелуй машины','Чем чаще я тебя вижу',
     'Обещание','Наша система','Телеграф','Делая вид, что видишь будущее','Новая священная земля'
   ].map((title,index) => ['1:' + (index+1),{title}]))},
-  164:{title:'Банши',episodes:{
+  164:{title:'Банши',original:'Banshee',years:'2013–2016',seasonCount:4,episodeCount:38,imdb:{id:'tt2017109'},
+    image:'https://static.tvmaze.com/uploads/images/medium_portrait/504/1260183.jpg',
+    description:'Бывший заключённый выдаёт себя за нового шерифа небольшого города в Пенсильвании. Пока он осваивается в новой роли, его разыскивают люди, которых он обманул.',
+    source:'https://www.tvmaze.com/shows/164/banshee',label:'TVmaze',episodes:{
     '1:1':{
       title:'Пилот',
       description:'Выйдя из тюрьмы, профессиональный вор скрывается от мафии и выдаёт себя за Лукаса Худа, нового шерифа городка Банши. Там он ищет Кэрри, свою бывшую возлюбленную и сообщницу. Пока он ждёт поддельные документы, сойти за местного ему помогает бывший боксёр и бармен Шугар Бейтс.',
