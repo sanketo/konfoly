@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {canonicalEpisode,combinedEpisodeRule,mentalistCatalog,seriesIdentity} from '../series-config.js';
 import {readLocal,writeLocal} from '../storage.js';
-import {integrationSettings} from '../integrations.js';
+import {integrationOrigins,integrationSettings,matchesIntegrationOrigin} from '../integrations.js';
 import {seriesMetadata} from '../series-metadata.js';
 
 test('imported Interns and the four-season edition map only on provider lookup', () => {
@@ -33,6 +33,23 @@ test('storage errors are observable and do not abort the session', () => {
     assert.deepEqual(readLocal('catalog'),{});
     assert.equal(writeLocal('catalog',[]),false);
   } finally { delete globalThis.localStorage; }
+});
+
+test('deployment source addresses produce narrowly scoped CSP origins', () => {
+  const policy = integrationOrigins({...integrationSettings,
+    episodeEndpoint:'https://catalog.example/api',stremioManifest:'stremio://addon.example/manifest.json',
+    mediaOrigins:['https://streams.example','https://segments.example'],
+    seriesSources:{demo:{video:'https://video.example/{episode}.mp4',manifest:'https://json.example/list',
+      alloha:'https://iframe.example/{season}/{episode}'}}
+  });
+  for (const host of ['catalog','addon','json','streams','segments','video']) assert.ok(policy.connect.includes('https://' + host + '.example'));
+  assert.ok(!policy.media.includes('https://addon.example'));
+  assert.ok(policy.frame.includes('https://iframe.example'));
+  assert.ok(policy.frame.includes('https://api.namy.ws'));
+  assert.ok(!policy.connect.includes('https://iframe.example'));
+  assert.ok(matchesIntegrationOrigin('https://video.okcdn.ru/movie.mp4',policy.media));
+  assert.ok(!matchesIntegrationOrigin('https://video.okcdn.ru.evil.example/movie.mp4',policy.media));
+  assert.throws(() => integrationOrigins({...integrationSettings,episodeEndpoint:'http://catalog.example/api'}),/HTTPS/);
 });
 
 test('episode localization matches exact external IDs and skips ambiguous labels', async (context) => {

@@ -1,5 +1,5 @@
 import {$, episodeId, key, make, openSheet} from './dom.js';
-import {configuredEmbed, createExternalVideoFrame, episodeEndpoint, episodeEndpointKey, indexEpisodeFiles, integrationEditorAvailable, localEpisodeFolders, mediaProviders, openVideoStream, previewEpisodeVoices, renderStreamChoices, resolveEpisodeEndpoint, resolveNative, resolveStremio, stremioManifestAddress, stremioSource, stremioSourceKey} from './providers.js';
+import {configuredEmbed, createExternalVideoFrame, episodeEndpoint, episodeEndpointKey, indexEpisodeFiles, integrationEditorAvailable, isIntegrationUrl, localEpisodeFolders, mediaProviders, openVideoStream, previewEpisodeVoices, renderStreamChoices, resolveEpisodeEndpoint, resolveNative, resolveSeriesSource, resolveStremio, stremioManifestAddress, stremioSource, stremioSourceKey} from './providers.js';
 import {readLocal, writeLocal} from './storage.js';
 import {bindPlaybackMemory, playbackStoreKey, playbackTime, readPlaybackMemory, watchPlaybackHealth} from './video-progress.js';
 import {episodeCatalog} from './episodes.js';
@@ -13,6 +13,7 @@ import {externalRatingData} from './ratings-data.js';
 import {bindVideoKeys, isMobileCinema, requestCinemaFullscreen} from './video-controls.js';
 import {createCinemaPlayer} from './player-ui.js';
 import {mediaAddress} from './urls.js';
+import {integrationSettings} from './integrations.js';
 import {createSeriesLibrary} from './series-library.js';
 import {createTelegramSync} from './telegram-sync.js';
 
@@ -533,23 +534,36 @@ function mountVideo(url, label, resumeTime, source, metadata = '', recoveryAttem
   releaseMedia = () => {stopHealth();stopMemory();stopKeys();ui.destroy();stopStream()};
 }
 function configuredSource() {
-  return preferences.sources[key(current)] || preferences.template;
+  const configured = integrationSettings.seriesSources.mentalist;
+  const source = [preferences.sources[key(current)],preferences.template,
+    {url:configured?.video,kind:'video'}].find(source =>
+    isIntegrationUrl(mediaAddress(source?.url,current.season,current.episode),source?.kind === 'video' ? 'media' : 'frame'));
+  if (source) return source;
+  if (isIntegrationUrl(mediaAddress(configured?.manifest,current.season,current.episode),'connect')) {
+    return {manifest:configured.manifest,kind:'video'};
+  }
+}
+function configuredAlloha() {
+  return [preferences.alloha,integrationSettings.seriesSources.mentalist?.alloha].find(value =>
+    isIntegrationUrl(mediaAddress(value,current.season,current.episode),'frame'));
 }
 async function launch(id,time = 0,recoveryAttempt = 0,choice) {
+  const custom = id === 'custom' ? configuredSource() : null;
   if (id === 'file') { pendingPosition = time; $('file').click(); return; }
   if ((id === 'endpoint' && !episodeEndpoint()) || (id === 'stremio' && !stremioSource())) {
-    preferences.selected = 'native';
-    location.hash = 'settings';
+    return launch('native',time);
+  }
+  if ((id === 'custom' && !custom) || (id === 'alloha' && !configuredAlloha())) {
+    if (!integrationEditorAvailable()) return launch('native',time);
+    openSources(id);
     return;
   }
-  if (id === 'custom' && !configuredSource()) { openSources('custom'); return; }
-  if (id === 'alloha' && !preferences.alloha) { openSources(); return; }
   preferences.selected = id;
   pendingPosition = time;
   persist();
   clearMedia();
   if ($('watch-preflight')) $('watch-preflight').hidden = true;
-  if (['native','endpoint','stremio'].includes(id)) {
+  if (['native','endpoint','stremio'].includes(id) || custom?.manifest) {
     const controller = new AbortController();
     request = controller;
     const timeout = setTimeout(() => controller.abort(),15000);
@@ -558,11 +572,11 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
     $('source-status').textContent = loading;
     try {
       const show = {...mentalistCatalog,imdb:externalRatingData.series.imdb};
-      const result = id === 'endpoint'
-          ? await resolveEpisodeEndpoint(show,current,controller.signal,choice)
-          : id === 'stremio'
-            ? await resolveStremio(show,current,controller.signal,choice)
-            : await resolveNative({...current,voice:choice ?? preferences.voice,quality:preferences.quality},controller.signal);
+      let result;
+      if (custom?.manifest) result = {url:await resolveSeriesSource(custom,current,controller.signal),label:'Свой источник'};
+      else if (id === 'endpoint') result = await resolveEpisodeEndpoint(show,current,controller.signal,choice);
+      else if (id === 'stremio') result = await resolveStremio(show,current,controller.signal,choice);
+      else result = await resolveNative({...current,voice:choice ?? preferences.voice,quality:preferences.quality},controller.signal);
       if (request !== controller) return;
       if (result.kind === 'embed') {
         $('screen').replaceChildren(createExternalVideoFrame(result.url,result.provider || 'Встроенный плеер'));
@@ -589,10 +603,13 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
     }
     return;
   }
-  const custom = id === 'custom' ? configuredSource() : null;
-  const template = custom?.url || (id === 'alloha' ? preferences.alloha : null);
+  const template = custom?.url || (id === 'alloha' ? configuredAlloha() : null);
   const url = template ? mediaAddress(template,current.season,current.episode) : configuredEmbed(id,current.season,current.episode);
   if (!url) { playbackError('Нужен действительный HTTPS-адрес.'); return; }
+  if (!isIntegrationUrl(url,custom?.kind === 'video' ? 'media' : 'frame')) {
+    playbackError('Домен источника не разрешён в этой сборке Konfoly.');
+    return;
+  }
   if (custom?.kind === 'video') { mountVideo(url,'Свой источник',time,id); return; }
   $('screen').replaceChildren(createExternalVideoFrame(url,id === 'alloha' ? 'Alloha' : 'Внешний видеоплеер'));
   $('source-status').textContent = 'Внешний плеер · точная позиция и качество недоступны';
@@ -622,12 +639,12 @@ function openSources(form = null) {
   $('provider-list').replaceChildren(...mediaProviders.filter(provider => (provider.id !== 'endpoint' || episodeEndpoint()) &&
     (provider.id !== 'stremio' || stremioSource()) &&
     (integrationEditorAvailable() || !['custom','alloha'].includes(provider.id) ||
-      (provider.id === 'custom' ? configuredSource() : preferences.alloha))).map(provider => {
+      (provider.id === 'custom' ? configuredSource() : configuredAlloha()))).map(provider => {
     const row = make('div','provider-item');
     row.append(make('strong',null,provider.title + (provider.id === preferences.selected ? ' · выбрано' : '')),make('p','muted',provider.detail));
-    const action = make('button','tonal',provider.id === 'alloha' && preferences.alloha ? 'Открыть' : provider.action);
+    const action = make('button','tonal',provider.id === 'alloha' && configuredAlloha() ? 'Открыть' : provider.action);
     action.onclick = () => {
-      if (integrationEditorAvailable() && ((provider.id === 'custom' && !configuredSource()) || (provider.id === 'alloha' && !preferences.alloha))) {
+      if (integrationEditorAvailable() && ((provider.id === 'custom' && !configuredSource()) || (provider.id === 'alloha' && !configuredAlloha()))) {
         showSourceForm(provider.id);
         return;
       }
@@ -637,7 +654,7 @@ function openSources(form = null) {
       launch(provider.id,time);
     };
     row.append(action);
-    if (integrationEditorAvailable() && provider.id === 'alloha' && preferences.alloha) {
+    if (integrationEditorAvailable() && provider.id === 'alloha' && configuredAlloha()) {
       const change = make('button','text-action','Сменить ссылку');
       change.onclick = () => showSourceForm('alloha');
       row.append(change);
@@ -660,6 +677,10 @@ if ($('episode-endpoint-form') && $('stremio-source-form')) {
       input.focus();
       return;
     }
+    if (address && !isIntegrationUrl(address,'connect')) {
+      $('episode-endpoint-status').textContent = 'Домен API не разрешён в этой сборке Konfoly.';
+      return;
+    }
     writeLocal(episodeEndpointKey,{url:address});
     if (!address && preferences.selected === 'endpoint') {
       preferences.selected = 'native';
@@ -676,6 +697,10 @@ if ($('episode-endpoint-form') && $('stremio-source-form')) {
     if (value && !address) {
       $('stremio-source-status').textContent = 'Нужна HTTPS-ссылка на manifest.json.';
       input.focus();
+      return;
+    }
+    if (address && !isIntegrationUrl(address,'connect')) {
+      $('stremio-source-status').textContent = 'Домен Stremio не разрешён в этой сборке Konfoly.';
       return;
     }
     writeLocal(stremioSourceKey,{url:address});
@@ -701,6 +726,10 @@ $('alloha-form').onsubmit = event => {
     $('source-error').textContent = 'Введи действительную HTTPS-ссылку для вставки Alloha.';
     return;
   }
+  if (!isIntegrationUrl(mediaAddress(value,current.season,current.episode),'frame')) {
+    $('source-error').textContent = 'Домен iframe не разрешён в этой сборке Konfoly.';
+    return;
+  }
   preferences.alloha = value;
   const time = media?.currentTime ?? pendingPosition;
   $('sources-dialog').close();
@@ -715,6 +744,10 @@ $('source-form').onsubmit = event => {
     return;
   }
   const source = {url,kind:$('source-kind').value};
+  if (!isIntegrationUrl(mediaAddress(url,current.season,current.episode),source.kind === 'video' ? 'media' : 'frame')) {
+    $('source-error').textContent = 'Домен источника не разрешён в этой сборке Konfoly.';
+    return;
+  }
   if (/{season}|{episode}/.test(url)) {
     preferences.template = source;
     delete preferences.sources[key(current)];

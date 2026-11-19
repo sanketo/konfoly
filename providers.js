@@ -1,5 +1,5 @@
 import {canonicalEpisode, combinedEpisodeRule, mentalistCatalog, seriesIdentity} from './series-config.js';
-import {integrationSettings} from './integrations.js';
+import {allowedOrigins, integrationSettings, matchesIntegrationOrigin} from './integrations.js';
 import {mediaAddress} from './urls.js';
 import {readLocal} from './storage.js';
 import {make} from './dom.js';
@@ -82,7 +82,7 @@ async function resolveNative({season,episode,voice,quality,kinopoiskId=mentalist
     const streams = [];
     for (const key of candidates) {
       const url = mediaAddress(media.sources?.[key] || '',season,episode);
-      if (!url || !new URL(url).hostname.endsWith('.' + integrationSettings.native?.mediaDomain) || seen.has(url)) continue;
+      if (!url || !matchesIntegrationOrigin(url,allowedOrigins.media) || seen.has(url)) continue;
       seen.add(url);
       const format = key === 'hlsUrl' ? 'hls' : undefined;
       const qualityNote = quality === 'fullhd' && !format && key !== 'mpegFullHdUrl' ? ' · Выбрано доступное качество' : '';
@@ -98,6 +98,7 @@ async function resolveNative({season,episode,voice,quality,kinopoiskId=mentalist
 }
 
 function createExternalVideoFrame(url,title='Внешний видеоплеер') {
+  requireIntegrationUrl(url,'frame');
   const frame = document.createElement('iframe');
   frame.title = title;
   frame.allow = 'autoplay; fullscreen; picture-in-picture';
@@ -111,22 +112,27 @@ function createExternalVideoFrame(url,title='Внешний видеоплеер
 
 function seriesSource(show,item,settings,provider) {
   const id = item.season + ':' + item.episode;
+  const configured = integrationSettings.seriesSources[show.id] || show.sources;
   if (provider === 'alloha') {
-    const value = settings.allohaEpisodes?.[id] || settings.allohaTemplate || show.sources?.alloha;
-    return value ? {address:mediaAddress(value,item.season,item.episode)} : null;
+    const address = [settings.allohaEpisodes?.[id],settings.allohaTemplate,configured?.alloha]
+      .map(value => mediaAddress(value,item.season,item.episode)).find(url => isIntegrationUrl(url,'frame'));
+    return address ? {address} : null;
   }
-  const value = settings[id] || settings.template || show.sources?.video;
-  if (value) return {address:mediaAddress(value,item.season,item.episode)};
-  const manifest = settings.manifest || show.sources?.manifest;
+  const address = [settings[id],settings.template,configured?.video]
+    .map(value => mediaAddress(value,item.season,item.episode)).find(url => isIntegrationUrl(url,'media'));
+  if (address) return {address};
+  const manifest = [settings.manifest,configured?.manifest]
+    .find(value => isIntegrationUrl(mediaAddress(value,item.season,item.episode),'connect'));
   return manifest ? {manifest} : null;
 }
 
 async function resolveSeriesSource(source,item,signal) {
   const {season,episode} = item;
-  if (source?.address) return source.address;
+  if (source?.address) return requireIntegrationUrl(source.address,'media');
   if (!source?.manifest) throw Error('Для этой серии источник ещё не настроен.');
   const manifestUrl = mediaAddress(source.manifest,season,episode);
   if (!manifestUrl) throw Error('Для каталога видео нужен действительный HTTPS-адрес.');
+  requireIntegrationUrl(manifestUrl,'connect');
   const response = await fetch(manifestUrl,{signal,credentials:'omit'});
   if (!response.ok) throw Error('Каталог видео недоступен.');
   const catalog = await response.json().catch(() => null);
@@ -135,21 +141,26 @@ async function resolveSeriesSource(source,item,signal) {
   if (typeof value !== 'string') throw Error('В каталоге видео нет этой серии.');
   const address = mediaAddress(value,season,episode);
   if (!address) throw Error('Каталог не предоставил действительную ссылку на видео.');
-  return address;
+  return requireIntegrationUrl(address,'media');
 }
 
 const episodeEndpointKey = 'konfoly-episode-endpoint-v1';
 
 function episodeEndpoint() {
-  return integrationSettings.episodeEndpoint || readLocal(episodeEndpointKey).url || '';
+  const value = integrationSettings.episodeEndpoint || readLocal(episodeEndpointKey).url;
+  return isIntegrationUrl(mediaAddress(value,1,1),'connect') ? value : '';
 }
 
 function integrationEditorAvailable() {
-  return ['localhost','127.0.0.1','[::1]'].includes(location.hostname);
+  return typeof location !== 'undefined' && ['localhost','127.0.0.1','[::1]'].includes(location.hostname);
 }
-function allowedIntegrationEmbed(url) {
-  const configured = integrationSettings.embedOrigins;
-  return Array.isArray(configured) && configured.includes(new URL(url).origin);
+function isIntegrationUrl(url,kind) {
+  return !!url && (matchesIntegrationOrigin(url,allowedOrigins[kind]) ||
+    (integrationEditorAvailable() && typeof document !== 'undefined' && !!document.querySelector?.('meta[name="konfoly-csp"]')));
+}
+function requireIntegrationUrl(url,kind) {
+  if (!isIntegrationUrl(url,kind)) throw Error('Домен источника не разрешён в этой сборке Konfoly.');
+  return url;
 }
 async function resolveEpisodeEndpoint(show,item,signal,choice) {
   item = canonicalEpisode(show,item);
@@ -168,17 +179,19 @@ async function resolveEpisodeEndpoint(show,item,signal,choice) {
   const rows = Array.isArray(result?.streams) ? result.streams : [];
   const options = [];
   const addresses = new Set();
+  let blocked = false;
   for (const row of [result,...rows].slice(0,60)) {
     const url = typeof row?.url === 'string' && mediaAddress(row.url,item.season,item.episode);
     if (!url || addresses.has(url)) continue;
     const kind = row.kind === 'embed' ? 'embed' : 'video';
-    if (kind === 'embed' && !allowedIntegrationEmbed(url)) continue;
+    if (!isIntegrationUrl(url,kind === 'embed' ? 'frame' : 'media')) { blocked = true; continue; }
     addresses.add(url);
     const label = typeof row.voice === 'string' ? row.voice.trim().slice(0,120) : '';
     options.push({url,kind,format:row.format === 'hls' ? 'hls' : undefined,label,
       provider:typeof row.provider === 'string' ? row.provider.slice(0,60) : '',
       choice:String(options.length),choiceLabel:label || 'Поток ' + (options.length+1)});
   }
+  if (!options.length && blocked) throw Error('Общий источник вернул потоки с доменов, не разрешённых в этой сборке Konfoly.');
   if (!options.length) throw Error('Общий источник не вернул HTTPS-ссылку на видео.');
   options.sort((a,b) => Number(a.kind === 'embed') - Number(b.kind === 'embed'));
   const stream = choice == null ? options[0] : options.find(option => option.choice === choice);
@@ -192,7 +205,8 @@ const stremioSourceKey = 'konfoly-stremio-source-v1';
 let stremioManifest;
 
 function stremioSource() {
-  return integrationSettings.stremioManifest || readLocal(stremioSourceKey).url || '';
+  const value = integrationSettings.stremioManifest || readLocal(stremioSourceKey).url;
+  return isIntegrationUrl(stremioManifestAddress(value),'connect') ? value : '';
 }
 
 function stremioManifestAddress(value) {
@@ -238,6 +252,7 @@ async function resolveStremio(show,item,signal,choice) {
   const result = await fetchAddonJson(request,signal);
   const options = [];
   const seen = new Set();
+  let blocked = false;
   for (const [index,stream] of (Array.isArray(result?.streams) ? result.streams.slice(0,50) : []).entries()) {
     if (stream?.behaviorHints?.notWebReady || stream?.behaviorHints?.proxyHeaders ||
         stream?.behaviorHints?.countryWhitelist || typeof stream?.url !== 'string') continue;
@@ -245,12 +260,14 @@ async function resolveStremio(show,item,signal,choice) {
     if (!url || seen.has(url)) continue;
     const path = new URL(url).pathname;
     if (/\.(mkv|avi|mpd|torrent)$/i.test(path)) continue;
+    if (!isIntegrationUrl(url,'media')) { blocked = true; continue; }
     seen.add(url);
     const providerLabel = [stream.name,stream.description || stream.title].filter(value => typeof value === 'string' && value.trim())
       .map(value => value.trim().split(/\r?\n/).slice(0,3).join(' · ')).join(' · ').slice(0,180);
     options.push({url,format:/\.m3u8$/i.test(path) ? 'hls' : undefined,label:'Stremio',
       choice:String(index),choiceLabel:providerLabel || 'Поток ' + (index+1)});
   }
+  if (!options.length && blocked) throw Error('Stremio вернул потоки с доменов, не разрешённых в этой сборке Konfoly.');
   if (!options.length) throw Error('Дополнение не выдало прямое видео для нашего плеера.');
   const stream = choice == null ? options[0] : options.find(option => option.choice === choice);
   if (!stream) throw Error('Этот поток больше недоступен. Открой источник заново.');
@@ -449,4 +466,4 @@ function previewEpisodeVoices(show,item,signal,callback) {
   }).catch(() => {});
 }
 
-export {configuredEmbed, mediaProviders, seriesNativeId, canResolveSeriesNative, nativePlaylists, nativeRequest, nativePlaylist, nativeVoices, discoverNativeVoices, resolveNative, createExternalVideoFrame, seriesSource, resolveSeriesSource, episodeEndpointKey, episodeEndpoint, integrationEditorAvailable, allowedIntegrationEmbed, resolveEpisodeEndpoint, stremioSourceKey, stremioManifest, stremioSource, stremioManifestAddress, fetchAddonJson, canUseStremio, resolveStremio, hlsScript, loadHls, openVideoStream, localEpisodeFolders, indexEpisodeFiles, renderStreamChoices, previewEpisodeVoices};
+export {configuredEmbed, mediaProviders, seriesNativeId, canResolveSeriesNative, nativePlaylists, nativeRequest, nativePlaylist, nativeVoices, discoverNativeVoices, resolveNative, createExternalVideoFrame, seriesSource, resolveSeriesSource, episodeEndpointKey, episodeEndpoint, integrationEditorAvailable, isIntegrationUrl, resolveEpisodeEndpoint, stremioSourceKey, stremioManifest, stremioSource, stremioManifestAddress, fetchAddonJson, canUseStremio, resolveStremio, hlsScript, loadHls, openVideoStream, localEpisodeFolders, indexEpisodeFiles, renderStreamChoices, previewEpisodeVoices};

@@ -5,6 +5,7 @@ const integrationSettings = Object.freeze({
   episodeEndpoint: '',
   stremioManifest: '',
   logoEndpoint: '',
+  seriesSources: {},
   embeds: {
     namy: {
       title:'Namy / Collaps',detail:'Запасной встроенный плеер.',
@@ -18,4 +19,38 @@ const integrationSettings = Object.freeze({
   embedOrigins: []
 });
 
-export {integrationSettings};
+const telegramSdk = 'https://telegram.org/js/telegram-web-app.js?65';
+
+function integrationOrigins(settings) {
+  const origins = urls => [...new Set(urls.filter(Boolean).map(value => {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password) throw Error('Expected a public HTTPS integration URL');
+    return url.origin;
+  }))];
+  const series = Object.values(settings.seriesSources);
+  const domain = settings.native?.mediaDomain;
+  if (domain && !/^[a-z0-9.-]+\.[a-z]+$/i.test(domain)) throw Error('Invalid native media domain');
+  const nativeMedia = domain ? ['https://' + domain,'https://*.' + domain] : [];
+  const media = [...origins([...settings.mediaOrigins,...series.map(source => source.video)]),...nativeMedia];
+  return {
+    media,
+    connect:[...new Set([...origins([settings.native?.address,settings.episodeEndpoint,
+      settings.stremioManifest?.replace(/^stremio:/i,'https:'),settings.logoEndpoint,
+      ...settings.connectOrigins,...series.map(source => source.manifest)]),...media])],
+    frame:origins([...settings.embedOrigins,...Object.values(settings.embeds).map(embed => embed.address),
+      ...series.map(source => source.alloha)]),
+    image:origins(settings.imageOrigins)
+  };
+}
+
+const allowedOrigins = integrationOrigins(integrationSettings);
+
+function matchesIntegrationOrigin(address,entries) {
+  if (!address) return false;
+  const url = new URL(address);
+  if (url.protocol !== 'https:' || url.username || url.password) return false;
+  return entries.some(origin => origin === url.origin || (origin.startsWith('https://*.') &&
+    !url.port && url.hostname.endsWith(origin.slice('https://*'.length))));
+}
+
+export {integrationSettings, telegramSdk, integrationOrigins, allowedOrigins, matchesIntegrationOrigin};

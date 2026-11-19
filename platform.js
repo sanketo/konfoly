@@ -1,3 +1,5 @@
+import {telegramSdk} from './integrations.js';
+
 const platform = (() => {
   let telegram, onBack, onTheme, onReady;
   const query = new URLSearchParams(location.search);
@@ -32,7 +34,7 @@ const platform = (() => {
     if (window.Telegram?.WebApp) connect();
     else {
       const script = document.createElement('script');
-      script.src = 'https://telegram.org/js/telegram-web-app.js?65';
+      script.src = telegramSdk;
       script.onload = connect;
       document.head.append(script);
     }

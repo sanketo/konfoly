@@ -8,7 +8,7 @@ import {ratingBadge, setPersonalRatingButton} from './ratings.js';
 import {seriesImportance} from './series-importance.js';
 import {importanceLabels} from './importance.js';
 import {platform} from './platform.js';
-import {canResolveSeriesNative, canUseStremio, createExternalVideoFrame, episodeEndpoint, indexEpisodeFiles, integrationEditorAvailable, localEpisodeFolders, openVideoStream, previewEpisodeVoices, renderStreamChoices, resolveEpisodeEndpoint, resolveNative, resolveSeriesSource, resolveStremio, seriesNativeId, seriesSource, stremioSource} from './providers.js';
+import {canResolveSeriesNative, canUseStremio, createExternalVideoFrame, episodeEndpoint, indexEpisodeFiles, integrationEditorAvailable, isIntegrationUrl, localEpisodeFolders, openVideoStream, previewEpisodeVoices, renderStreamChoices, resolveEpisodeEndpoint, resolveNative, resolveSeriesSource, resolveStremio, seriesNativeId, seriesSource, stremioSource} from './providers.js';
 import {mediaAddress} from './urls.js';
 import {bindVideoKeys, isMobileCinema, requestCinemaFullscreen} from './video-controls.js';
 import {createCinemaPlayer} from './player-ui.js';
@@ -857,13 +857,19 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       form.onsubmit = event => {
         event.preventDefault();
         const value = input.value.trim();
-        if (!mediaAddress(value,item.season,item.episode)) {
+        const address = mediaAddress(value,item.season,item.episode);
+        if (!address) {
           sourceFeedback.textContent = 'Нужен действительный HTTPS-адрес.';
           input.focus();
           return;
         }
+        const policy = {manifest:'connect',alloha:'frame',video:'media'};
+        if (!isIntegrationUrl(address,policy[kind])) {
+          sourceFeedback.textContent = 'Домен источника не разрешён в этой сборке Konfoly.';
+          return;
+        }
         setSource(kind,value);
-        const explicit = kind === 'manifest' ? {manifest:value} : {address:mediaAddress(value,item.season,item.episode)};
+        const explicit = kind === 'manifest' ? {manifest:value} : {address};
         void openProvider(kind === 'alloha' ? 'alloha' : 'video',explicit);
       };
       section.append(make('strong',null,label),make('p','muted',description),form);
@@ -1010,7 +1016,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       defaultNativeButton.hidden = !nativeAvailable;
       connectedFolder.hidden = !attachedFile();
       for (const [id,control] of [['video',nativeButton],['alloha',allohaButton]]) {
-        control.hidden = !seriesSource(show,item,saved,id) && !(id === 'video' && saved.manifest);
+        control.hidden = !seriesSource(show,item,saved,id);
       }
     }
     async function openProvider(id,override,resumeTime,{next,retry=false,choice}={}) {
@@ -1021,7 +1027,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       sourceFeedback.textContent = '';
       const timer = setTimeout(() => controller.abort(),12000);
       try {
-        const source = override || (id === 'video' && saved.preferred === 'manifest' && saved.manifest ?
+        const source = override || (id === 'video' && saved.preferred === 'manifest' &&
+          isIntegrationUrl(mediaAddress(saved.manifest,item.season,item.episode),'connect') ?
           {manifest:saved.manifest} : seriesSource(show,item,saved,id));
         status.textContent = 'Подключаем видео…';
         if (id === 'alloha') {

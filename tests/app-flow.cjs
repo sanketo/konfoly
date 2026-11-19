@@ -108,6 +108,9 @@ class Element extends EventTarget{
  assert.equal(ids.get('alloha-form').hidden,false);
  ids.get('alloha-url').value='https://video.example/mental/{season}/{episode}';
  ids.get('alloha-form').onsubmit({preventDefault(){}});
+ assert.match(ids.get('source-error').textContent,/Домен iframe не разрешён/);
+ vm.runInContext("allowedOrigins.frame.push('https://video.example')",ctx);
+ ids.get('alloha-form').onsubmit({preventDefault(){}});
  const embedded=ids.get('screen').children[0];
  assert.equal(embedded.tagName,'iframe');
  assert.match(embedded.src,/^https:\/\/video\.example\/mental\/3\/23$/);
@@ -141,6 +144,8 @@ class Element extends EventTarget{
  assert.equal(startupFailure,2);
  const addonRequests = [];
  storage.set('konfoly-stremio-source-v1',JSON.stringify({url:'https://addon.invalid/config/manifest.json?profile=test'}));
+ assert.equal(ctx.stremioSource(),'');
+ vm.runInContext("allowedOrigins.connect.push('https://addon.invalid')",ctx);
  const previousFetch = ctx.fetch;
  ctx.fetch = async (input,options) => {
    const url = new URL(input);
@@ -159,6 +164,9 @@ class Element extends EventTarget{
    };
  };
  assert.equal(ctx.stremioManifestAddress('stremio://addon.invalid/manifest.json'),'https://addon.invalid/manifest.json');
+ await assert.rejects(ctx.resolveStremio({imdb:{id:'tt0903747'}},{season:1,episode:3}),/доменов, не разрешённых/);
+ addonRequests.pop();
+ vm.runInContext("allowedOrigins.media.push('https://addon.invalid')",ctx);
  const firstSource = await ctx.resolveStremio({imdb:{id:'tt0903747'}},{season:1,episode:3});
  assert.equal(firstSource.url,'https://addon.invalid/stream.mp4');
  assert.equal(firstSource.alternatives[0].format,'hls');
