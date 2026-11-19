@@ -34,9 +34,10 @@
 .cinema-volume-range::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:9px;height:9px;background:#fff;border-radius:50%;border:0}
 .cinema-volume-range::-moz-range-thumb{width:9px;height:9px;background:#fff;border-radius:50%;border:0}
 .cinema-boost{position:absolute;top:22px;left:50%;transform:translateX(-50%) translateY(-8px);opacity:0;display:flex;align-items:center;gap:10px;padding:9px 14px;border:1px solid #ffffff33;border-radius:30px;background:#101113cc;font-size:18px;font-weight:800;transition:opacity .15s,transform .15s;backdrop-filter:blur(8px)}
-.cinema-boost span{font-size:8px;letter-spacing:1.2px;color:#cfc7c2}
 .cinema-player.boosting .cinema-boost{opacity:1;transform:translateX(-50%) translateY(0)}
-.cinema-player.boosting .cinema-top{opacity:0}
+.cinema-player.boosting .cinema-overlay{background:none}
+.cinema-player.boosting :is(.cinema-top,.cinema-controls,.cinema-center,.cinema-spinner){visibility:hidden;transition:none}
+.cinema-player.boosting{cursor:none}
 .cinema-player.idle:not(.paused) .cinema-controls,.cinema-player.idle:not(.paused) .cinema-top{opacity:0;pointer-events:none}
 .cinema-player.idle:not(.paused) .cinema-controls{transform:translateY(8px)}
 .cinema-player.idle:not(.paused){cursor:none}
@@ -85,6 +86,12 @@
  width:100%;height:22px;
  border:0;
  background:linear-gradient(to right,#ffb3b1 0 var(--played,0%),#aaa var(--played,0%) var(--buffered,0%),#ffffff52 var(--buffered,0%) 100%) center / 100% 4px no-repeat;
+}
+.cinema-scrubber{position:relative;display:grid;min-width:0}
+.cinema-seek-preview{
+ position:absolute;bottom:calc(100% + 2px);left:clamp(2rem,var(--seek-preview-x),100% - 2rem);transform:translateX(-50%);
+ min-width:4rem;padding:4px 8px;border-radius:6px;background:#111014eb;color:#fff;text-align:center;
+ font-size:.75rem;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none;
 }
 .cinema-player .cinema-seek:is(:hover,:focus-visible){height:22px}
 .cinema-player .cinema-seek::-webkit-slider-thumb {background:#ffb3b1}

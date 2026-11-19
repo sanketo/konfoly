@@ -234,7 +234,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (Number.isFinite(seriesIdentity(show)?.hue)) return seriesIdentity(show).hue;
     return [...show.id].reduce((value,char) => (value * 31 + char.charCodeAt(0)) % 360,0);
   }
-  function showCard(show,add) {
+  function showCard(show,add,themeElement) {
     const tile = add ? make('button','library-tile') : link(undefined,showPath(show),'library-tile');
     if (add) {
       tile.type = 'button';
@@ -247,9 +247,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (show.preview && name !== show.title) copy.append(make('span','library-tile-original',show.title));
     if (facts) copy.append(make('span','muted',facts));
     if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
-    tile.style.setProperty('--tile-hue',showHue(show));
+    const themed = themeElement || tile;
+    themed.style.setProperty('--tile-hue',showHue(show));
     if (show.hue == null && !Number.isFinite(seriesIdentity(show)?.hue) && show.image) void posterHue(show.image).then(hue => {
-      if (hue != null) tile.style.setProperty('--tile-hue',hue);
+      if (hue != null) themed.style.setProperty('--tile-hue',hue);
     });
     tile.append(poster(show),copy);
     return tile;
@@ -358,7 +359,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         const name = seriesDisplayTitle(show);
         const selected = favoriteAt(show) > 0;
         const favorite = make('button','library-card-button library-favorite',selected ? '★' : '☆');
-        const remove = make('button','library-card-button library-remove','×');
+        const remove = make('button','library-card-button library-remove');
         favorite.type = remove.type = 'button';
         favorite.title = selected ? 'Убрать из избранного' : 'Добавить в избранное';
         favorite.setAttribute('aria-label',favorite.title + ': ' + name);
@@ -384,7 +385,9 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           undo.focus();
         };
         if (show.id === focusId) focusButton = favorite;
-        card.append(showCard(show),favorite,remove);
+        const actions = make('div','library-card-actions');
+        actions.append(favorite,remove);
+        card.append(showCard(show,null,card),actions);
         return card;
       });
       grid.replaceChildren(...cards);
@@ -791,7 +794,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const description = make('div','hero-description');
     const synopsis = make('p','synopsis');
     const attribution = make('p','muted synopsis-source');
-    const characters = make('p','muted hero-characters');
     const originalSynopsis = make('details','synopsis-original');
     const originalText = make('p','muted');
     originalSynopsis.append(make('summary',null,'Описание на языке оригинала'),originalText);
@@ -799,7 +801,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     translationStatus.setAttribute('role','status');
     const translateShow = make('button','tonal','Перевести описание');
     translateShow.type = 'button';
-    description.append(synopsis,characters,attribution,originalSynopsis,translateShow,translationStatus);
+    description.append(synopsis,attribution,originalSynopsis,translateShow,translationStatus);
     copy.append(description);
     const resumeInfo = make('p','muted hero-resume');
     copy.append(actions,resumeInfo);
@@ -859,8 +861,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         .filter(Boolean).join(' · ');
       const foreign = !!details.description.text && !/\p{Script=Cyrillic}/u.test(details.description.text);
       synopsis.textContent = details.description.text || 'Сюжетное описание пока недоступно.';
-      characters.hidden = !details.characters.length;
-      characters.textContent = details.characters.length ? 'Главные герои: ' + details.characters.join(', ') : '';
       translateShow.hidden = !foreign;
       originalSynopsis.hidden = !details.originalDescription;
       originalText.textContent = details.originalDescription;

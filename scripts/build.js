@@ -5,6 +5,7 @@ import {build} from 'esbuild';
 import {allowedOrigins, telegramSdk} from '../integrations.js';
 import {cinemetaOrigin, cinemetaImages} from '../cinemeta.js';
 import {translationOrigin} from '../description-translation.js';
+import {appleRatingsOrigin} from '../series-age-ratings.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const out = resolve(root,'dist');
@@ -17,7 +18,7 @@ const sourcePolicy = [
   "img-src 'self' data: blob: https://static.tvmaze.com https://*.wikimedia.org https://image.tmdb.org https://avatars.mds.yandex.net https://avatars.yandex.net https://st.kp.yandex.net https://kinopoiskapiunofficial.tech " + [...cinemetaImages,...allowedOrigins.image].join(' '),
   "media-src 'self' blob: " + allowedOrigins.media.join(' '),
   "connect-src 'self' https://api.tvmaze.com https://*.wikidata.org https://*.wikipedia.org https://*.wikimedia.org https://api.themoviedb.org https://kinopoiskapiunofficial.tech " +
-    [cinemetaOrigin,translationOrigin,...allowedOrigins.connect].join(' '),
+    [cinemetaOrigin,translationOrigin,appleRatingsOrigin,...allowedOrigins.connect].join(' '),
   'frame-src ' + (allowedOrigins.frame.join(' ') || "'none'")
 ].map(value => value.trim()).join('; ');
 

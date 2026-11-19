@@ -6,6 +6,8 @@ import {integrationOrigins,integrationSettings,matchesIntegrationOrigin} from '.
 import {seriesMetadata} from '../series-metadata.js';
 import {cachedEpisodes,rememberEpisodes} from '../catalog-episodes.js';
 import {loadCinemetaSeries,searchCinemeta} from '../cinemeta.js';
+import {loadAppleAgeRating} from '../series-age-ratings.js';
+import {seekTimeAtPointer} from '../video-controls.js';
 
 test('imported Interns and the four-season edition map only on provider lookup', () => {
   const item = {season:4,episode:1,title:'Серия 61'};
@@ -202,4 +204,26 @@ test('an imported show can use a regional TMDB certificate when a Russian rating
   await seriesMetadata.load(show,new AbortController().signal,refresh);
   assert.equal(seriesMetadata.ageRating(show),'15 (Великобритания)');
   assert.equal(refresh.mock.callCount(),1);
+});
+
+test('the public rating lookup verifies the show and release years before using a store result', async (context) => {
+  const season = (artistName,releaseDate,contentAdvisoryRating,country='USA') =>
+    ({collectionType:'TV Season',artistName,releaseDate,contentAdvisoryRating,country});
+  const fetchMock = context.mock.method(globalThis,'fetch',async address => {
+    assert.equal(address.origin,'https://itunes.apple.com');
+    assert.equal(address.searchParams.get('term'),'Sample Show');
+    return Response.json({results:address.searchParams.get('country') === 'us' ? [
+      season('Sample Show','1982-09-27','TV-MA'),
+      season('Sample Show: The Remake','2012-09-27','TV-MA')
+    ] : [season('Sample Show','2016-05-03','15','GBR')]});
+  });
+  assert.equal(await loadAppleAgeRating('Sample Show','2011–2016',new AbortController().signal),'15 (Великобритания)');
+  assert.equal(fetchMock.mock.callCount(),2);
+});
+
+test('the timeline hover uses the slider travel and clamps to the episode bounds', () => {
+  assert.equal(seekTimeAtPointer(2526,0,1012),0);
+  assert.equal(seekTimeAtPointer(2526,506,1012),1263);
+  assert.equal(seekTimeAtPointer(2526,1012,1012),2526);
+  assert.equal(seekTimeAtPointer(Infinity,50,1012),null);
 });

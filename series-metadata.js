@@ -6,6 +6,7 @@ import {breakingBad, interns, seriesEditorial, seriesPremises} from './series-da
 import {localizedSeriesTitle} from './series-titles-ru.js';
 import {imdbScore, loadCinemetaRating, validImdb} from './cinemeta.js';
 import {descriptionLanguage, translatePublicDescription} from './description-translation.js';
+import {loadAppleAgeRating} from './series-age-ratings.js';
 
 const seriesMetadata = (() => {
   const keyName = 'konfoly-kinopoisk-api-key';
@@ -24,6 +25,7 @@ const seriesMetadata = (() => {
     {country:'GB',label:'Великобритания',pattern:/^(?:U|PG|12|12A|15|18|R18)$/},
     {country:'AU',label:'Австралия',pattern:/^(?:G|PG|M|MA\s?15\+|R\s?18\+)$/}
   ];
+  const fskRatings = {'Q20644794':0,'Q20644795':6,'Q20644796':12,'Q20644797':16,'Q20644798':18};
 
   function apiKey() {
     try { return sessionStorage.getItem(keyName) || ''; } catch { return ''; }
@@ -89,7 +91,8 @@ const seriesMetadata = (() => {
     const editorial = editorialAgeRating(show);
     const data = read(show);
     const tmdb = data.tmdbAgeRating || '';
-    return russianAgeRating(editorial) || data.kpAgeRating || russianAgeRating(tmdb) || editorial || tmdb;
+    return russianAgeRating(editorial) || data.kpAgeRating || russianAgeRating(tmdb) || editorial || tmdb ||
+      data.appleAgeRating || data.wikiAgeRating || '';
   }
 
   async function loadTmdbAgeRating(show,signal,token,onChange) {
@@ -195,13 +198,12 @@ const seriesMetadata = (() => {
       id = match.externals?.imdb === show.imdb.id ? match.id : null;
     }
     if (!Number.isInteger(id) || signal.aborted) return;
-    const result = await json('https://api.tvmaze.com/shows/' + id + '?embed=cast',{signal});
+    const result = await json('https://api.tvmaze.com/shows/' + id,{signal});
     if (signal.aborted || result.id !== id) return;
-    const cast = result._embedded?.cast;
-    const characters = Array.isArray(cast) ? cast.map(item => text(item?.character?.name,100)).filter(Boolean) : [];
     save(show,{
       mazeSynopsis:plotSynopsis(plain(result.summary)),
-      mazeCharacters:[...new Set(characters)].slice(0,3),
+      mazeOriginalTitle:text(result.name,230),
+      mazeYears:[result.premiered,result.ended].map(date => text(date,4)).filter(Boolean).join('–'),
       mazePlotCheckedAt:Date.now()
     });
     onChange();
@@ -280,15 +282,17 @@ const seriesMetadata = (() => {
     if (!/^tt\d{5,12}$/.test(imdb || '')) return {};
     const url = new URL('https://query.wikidata.org/sparql');
     url.searchParams.set('format','json');
-    url.searchParams.set('query','SELECT DISTINCT ?id ?logo ?ruTitle ?wikiTitle ?enWikiTitle WHERE { ?s wdt:P345 "' + imdb +
-      '" . OPTIONAL { ?s wdt:P2603 ?id } OPTIONAL { ?s wdt:P154 ?logo } ' +
+    url.searchParams.set('query','SELECT DISTINCT ?id ?logo ?ruTitle ?wikiTitle ?enWikiTitle ?fsk WHERE { ?s wdt:P345 "' + imdb +
+      '" . OPTIONAL { ?s wdt:P2603 ?id } OPTIONAL { ?s wdt:P154 ?logo } OPTIONAL { ?s wdt:P1981 ?fsk } ' +
       'OPTIONAL { ?s rdfs:label ?ruTitle . FILTER(LANG(?ruTitle) = "ru") } ' +
       'OPTIONAL { ?article schema:about ?s ; schema:isPartOf <https://ru.wikipedia.org/> ; schema:name ?wikiTitle } OPTIONAL { ?en schema:about ?s ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?enWikiTitle } } LIMIT 12');
     const {results} = await json(url,{signal});
     const rows = results?.bindings || [];
     const ids = [...new Set(rows.map(row => row.id?.value).filter(value => /^[1-9]\d{1,9}$/.test(value || '')))];
+    const fsk = Math.max(-1,...rows.map(row => fskRatings[row.fsk?.value?.split('/').pop()] ?? -1));
     return {
       kpId:ids.length === 1 ? Number(ids[0]) : undefined,
+      wikiAgeRating:fsk >= 0 ? 'FSK ' + fsk + ' (Германия)' : '',
       commonsLogos:[...new Set(rows.map(row => image(row.logo?.value?.replace(/^http:/,'https:'))).filter(Boolean))],
       enWikiTitle:text(rows[0]?.enWikiTitle?.value,230),
       wikiTitle:text(rows[0]?.wikiTitle?.value,230),ruTitle:text(rows[0]?.ruTitle?.value,230)
@@ -390,8 +394,21 @@ const seriesMetadata = (() => {
     const data = read(show);
     const key = apiKey();
     const jobs = [];
-    if (!curatedPlot(show) && !fresh(data.mazePlotCheckedAt)) {
-      jobs.push(loadMazePlot(show,signal,onChange).catch(() => {}));
+    const plotJob = !curatedPlot(show) && !fresh(data.mazePlotCheckedAt)
+      ? loadMazePlot(show,signal,onChange).catch(() => {}) : null;
+    if (plotJob) jobs.push(plotJob);
+    if (!ageRating(show) && !fresh(data.appleAgeCheckedAt)) {
+      jobs.push((async () => {
+        await plotJob;
+        if (signal.aborted || ageRating(show)) return;
+        const title = data.mazeOriginalTitle || show.original || show.title;
+        const years = data.mazeYears || show.years;
+        if (!title || !years) return;
+        const appleAgeRating = await loadAppleAgeRating(title,years,signal);
+        if (signal.aborted) return;
+        save(show,{appleAgeRating,appleAgeCheckedAt:Date.now()});
+        if (appleAgeRating) onChange();
+      })().catch(() => {}));
     }
     const logoAddress = integrationSettings.logoEndpoint;
     if (logoAddress && /^tt\d{5,12}$/.test(show.imdb?.id || '') && !fresh(data.operatorLogosCheckedAt)) {
@@ -438,7 +455,8 @@ const seriesMetadata = (() => {
         onChange();
       })());
     }
-    if (!fresh(data.wikiCheckedAt) || !fresh(data.wikiArtCheckedAt)) {
+    if (!fresh(data.wikiCheckedAt) || !fresh(data.wikiArtCheckedAt) ||
+        (!ageRating(show) && validImdb(show.imdb?.id) && !Object.hasOwn(data,'wikiAgeRating'))) {
       jobs.push((async () => {
         const wiki = await wikidata(show,signal);
         if (signal.aborted) return;
@@ -596,8 +614,7 @@ const seriesMetadata = (() => {
     const description = curated || (kpSynopsis ? {text:kpSynopsis,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'} :
       translated ? {text:translated,label:'Машинный перевод'} : {text:synopsis});
     return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,
-      description,originalDescription:translated && description.text === translated ? synopsis : '',
-      characters:curated ? [] : data.mazeCharacters || [],ageRating:ageRating(show)};
+      description,originalDescription:translated && description.text === translated ? synopsis : '',ageRating:ageRating(show)};
   }
   async function translateShow(show,signal,onChange,{online=false,onProgress}={}) {
     const original = details(show);
