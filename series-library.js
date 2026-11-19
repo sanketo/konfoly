@@ -51,6 +51,9 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   const catalogKey = show => show.id.startsWith('imdb-') ? show.imdb.id : show.mazeId || show.imdb?.id;
   const formatEpisode = item => 'Сезон ' + item.season + ' · Серия ' + item.episode;
   const selectedEpisodes = new Map();
+  const countPlural = new Intl.PluralRules('ru');
+  const seasonNouns = {one:'сезон',few:'сезона',many:'сезонов'};
+  const episodeNouns = {one:'серия',few:'серии',many:'серий'};
   const seriesDisplayTitle = show => {
     const title = seriesMetadata.details(show).title;
     return title === show.title ? seriesIdentity(show)?.title || title : title;
@@ -69,8 +72,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   const partialSeasons = new WeakMap();
 
   function compactImport(show) {
-    const {id,mazeId,title,language,years,image,description,source,imdb} = show;
-    return {id,mazeId,title,language,years,image,description,source,imdb,
+    const {id,mazeId,title,language,years,image,description,source,imdb,genres} = show;
+    return {id,mazeId,title,language,years,image,description,source,imdb,genres,
       episodeCount:show.episodes?.length ?? show.episodeCount,
       seasonCount:show.episodes ? new Set(show.episodes.map(item => item.season)).size : show.seasonCount};
   }
@@ -184,6 +187,9 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (!active) active = readLocal(activeKey);
     const show = route.show ?? (['home','catalog','watch'].includes(route.page) ? mentalist : null);
     if (!show) return;
+    const overview = route.page === 'home' || route.overview ||
+      (route.page === 'series' && !route.loadEpisodes && route.season == null && !route.episode);
+    if (overview && !isSaved(show,catalogStates()[show.id],readLocal(pinnedKey))) saveToCatalog(show);
     const previous = active.id === show.id ? active : {};
     active = {
       id:show.id,
@@ -253,26 +259,41 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   }
   function savedCardFacts(show) {
     const {seasons,count} = episodeCounts(show);
-    const years = showYears(show);
     const age = seriesMetadata.ageRating(show);
     const facts = make('span','library-card-facts');
-    for (const [label,value] of [
-      ['Годы',years],['Сезоны',seasons],['Серии',count],['Возраст',age]
+    const countWithNoun = (value,nouns) => value && value + ' ' + nouns[countPlural.select(value)];
+    for (const values of [
+      [showYears(show),age?.replace(/ \([^)]*\)$/,'')],
+      [countWithNoun(seasons,seasonNouns),countWithNoun(count,episodeNouns)]
     ]) {
-      if (!value) continue;
-      const field = make('span','library-card-fact');
-      const text = make('span',null,label === 'Возраст' ? value.replace(/ \([^)]*\)$/,'') : value);
-      text.title = String(value);
-      field.append(make('span',null,label),text);
-      facts.append(field);
+      const fields = values.filter(Boolean);
+      if (!fields.length) continue;
+      const row = make('span','library-card-fact');
+      row.append(...fields.map(value => make('span',null,value)));
+      facts.append(row);
     }
+    if (age) facts.firstElementChild.lastElementChild.title = age;
     return facts;
   }
-  function showHue(show) {
-    if (show === mentalist) return 22;
-    if (Number.isFinite(show.hue)) return show.hue;
-    if (Number.isFinite(seriesIdentity(show)?.hue)) return seriesIdentity(show).hue;
-    return [...show.id].reduce((value,char) => (value * 31 + char.charCodeAt(0)) % 360,0);
+  function applyShowPalette(show,update) {
+    const identity = seriesIdentity(show);
+    const hue = show.hue ?? identity?.hue;
+    const chroma = show.chroma ?? identity?.chroma;
+    const hash = [...show.id].reduce((value,char) => Math.imul(value ^ char.charCodeAt(0),16777619),2166136261) >>> 0;
+    update(hue ?? hash % 360,chroma ?? .10 + (hash % 7) * .01);
+    if (hue == null && show.image) void posterPalette(show.image).then(sample => {
+      if (sample) update(sample.hue,chroma ?? sample.chroma);
+    });
+  }
+  function setShowPalette(element,hue,chroma) {
+    element.style.setProperty('--show-hue',hue);
+    element.style.setProperty('--show-chroma',chroma);
+  }
+  function colorCard(show,card) {
+    const image = show.image;
+    applyShowPalette(show,(hue,chroma) => {
+      if (show.image === image) setShowPalette(card,hue,chroma);
+    });
   }
   function showCard(show,themeElement,saved=false) {
     const tile = link(undefined,showPath(show),'library-tile');
@@ -289,11 +310,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const facts = [show.preview ? showYears(show) : caption(show),seriesMetadata.ageRating(show)].filter(Boolean).join(' · ');
       if (facts) copy.append(make('span','muted',facts));
     }
-    const themed = themeElement || tile;
-    themed.style.setProperty('--tile-hue',showHue(show));
-    if (show.hue == null && !Number.isFinite(seriesIdentity(show)?.hue) && show.image) void posterHue(show.image).then(hue => {
-      if (hue != null) themed.style.setProperty('--tile-hue',hue);
-    });
+    colorCard(show,themeElement || tile);
     tile.append(poster(show),copy);
     return tile;
   }
@@ -370,11 +387,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     return {
       id,mazeId:raw.id,title:raw.name,language:raw.language,years:[...new Set(years)].join('–') || raw.years,
       image:tvmazePoster(raw.image) || raw.poster,description:plainText(raw.summary),
+      genres:Array.isArray(raw.genres) ? raw.genres.filter(genre => typeof genre === 'string').slice(0,8) : undefined,
       source:raw.id ? 'https://www.tvmaze.com/shows/' + raw.id : '',
       imdb:validImdb(raw.externals?.imdb) ? {id:raw.externals.imdb} : null,preview:true
     };
   }
-  function savePreview(show) {
+  function saveToCatalog(show) {
+    if (!show.preview) return saveCatalogState(show,{});
     show.preview = false;
     const next = [...imported,show];
     show.sessionOnly = !persistImports(next);
@@ -440,8 +459,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         const name = seriesDisplayTitle(show);
         const selected = favoriteAt(show) > 0;
         const favorite = make('button','library-card-button library-favorite');
-        const star = make('span','library-favorite-star');
+        const star = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        star.classList.add('library-favorite-star');
         star.setAttribute('aria-hidden','true');
+        star.setAttribute('viewBox','0 0 20 20');
+        const shape = document.createElementNS(star.namespaceURI,'path');
+        shape.setAttribute('d','M10 1.8 12.6 7.1 18.5 8 14.2 12.1 15.2 18 10 15.2 4.8 18 5.8 12.1 1.5 8 7.4 7.1Z');
+        star.append(shape);
         favorite.append(star);
         const remove = make('button','library-card-button library-remove');
         favorite.type = remove.type = 'button';
@@ -494,7 +518,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       };
       if (isSaved(show,catalogStates()[show.id],readLocal(pinnedKey))) markSaved();
       add.onclick = () => {
-        const saved = show.preview ? savePreview(show) : saveCatalogState(show,{});
+        const saved = saveToCatalog(show);
         markSaved();
         announce(seriesDisplayTitle(show) + ' — добавлено в каталог.',saved);
         renderSavedGrid();
@@ -551,7 +575,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           const current = previews.find(item => matchesCatalog(item,show));
           const id = known?.id || current?.id || (Number.isInteger(show.id) ? 'tvmaze-' + show.id : 'imdb-' + show.externals.imdb);
           const previous = rawMatches.get(id) || {};
-          const raw = {...previous,...Object.fromEntries(Object.entries(show).filter(([,value]) => value != null && value !== ''))};
+          const raw = {...previous,...Object.fromEntries(Object.entries(show).filter(([,value]) =>
+            value != null && value !== '' && (!Array.isArray(value) || value.length)))};
           raw.externals = {imdb:[previous.externals?.imdb,show.externals?.imdb].find(validImdb)};
           rawMatches.set(id,raw);
           const preview = known || searchPreview(raw,id);
@@ -567,13 +592,21 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             known.language ||= show.language;
             known.description ||= plainText(show.summary);
             if (!known.imdb && raw.externals.imdb) known.imdb = {id:raw.externals.imdb};
-            if (imageChanged && cardPoster && !cardPoster.firstElementChild) cardPoster.replaceWith(poster(known));
+            if (imageChanged && cardPoster && !cardPoster.firstElementChild) {
+              cardPoster.replaceWith(poster(known));
+              colorCard(known,cards.get(id));
+            }
           }
+          if (known && !known.genres?.length && Array.isArray(raw.genres)) known.genres = raw.genres.slice(0,8);
           if (seen.has(id)) {
             if (!known && current) {
+              const imageChanged = preview.image !== current.image;
               Object.assign(current,preview);
               const card = cards.get(id);
-              if (preview.image) card.querySelector('.library-poster')?.replaceWith(poster(preview));
+              if (imageChanged) {
+                card.querySelector('.library-poster')?.replaceWith(poster(current));
+                colorCard(current,card);
+              }
               const copy = card.querySelector('.library-tile-copy');
               const facts = copy?.querySelector('.muted');
               const previewFacts = [preview.years,seriesMetadata.ageRating(preview)].filter(Boolean).join(' · ');
@@ -949,7 +982,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     function updateShowDetails() {
       renderTitle();
       const details = seriesMetadata.details(show);
-      facts.textContent = [showYears(show),show.genre,'Возрастной рейтинг ' + (details.ageRating || 'не указан')]
+      facts.textContent = [showYears(show),details.genres.join(', '),'Возрастной рейтинг ' + (details.ageRating || 'не указан')]
         .filter(Boolean).join(' · ');
       const foreign = !!details.description.text && !/\p{Script=Cyrillic}/u.test(details.description.text);
       synopsis.textContent = details.description.text || 'Сюжетное описание пока недоступно.';
@@ -1551,13 +1584,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     };
   }
   const posterColors = new Map();
-  function posterHue(url) {
+  function posterPalette(url) {
     url = posterSources(url).at(-1) || url;
     if (posterColors.has(url)) return posterColors.get(url);
     const sample = new Promise(resolve => {
       const image = new Image();
       const timer = setTimeout(() => resolve(null),6000);
-      function done(hue) { clearTimeout(timer); resolve(hue); }
+      function done(palette) { clearTimeout(timer); resolve(palette); }
       image.crossOrigin = 'anonymous';
       image.onerror = () => done(null);
       image.onload = () => {
@@ -1568,6 +1601,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           context.drawImage(image,0,0,20,20);
           const pixels = context.getImageData(0,0,20,20).data;
           const weights = new Array(12).fill(0);
+          const saturation = new Array(12).fill(0);
           for (let i=0; i<pixels.length; i+=4) {
             const [r,g,b] = pixels.subarray(i,i+3);
             const max = Math.max(r,g,b);
@@ -1576,10 +1610,14 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             if (pixels[i+3] < 200 || delta < 26 || max < 58) continue;
             const sector = max === r ? (g-b)/delta : max === g ? (b-r)/delta + 2 : (r-g)/delta + 4;
             const bin = Math.round(sector * 2 + 12) % 12;
-            weights[bin] += delta ** 2.4 * (255 - min) / 255;
+            const weight = delta ** 2.4 * (255 - min) / 255;
+            weights[bin] += weight;
+            saturation[bin] += weight * delta / 255;
           }
           const best = Math.max(...weights);
-          done(best ? [28,58,91,120,142,164,191,219,255,280,326,353][weights.indexOf(best)] : null);
+          const bin = weights.indexOf(best);
+          done(best ? {hue:[28,58,91,120,142,164,191,219,255,280,326,353][bin],
+            chroma:.08 + .12 * saturation[bin] / best} : null);
         } catch { done(null); }
       };
       image.src = url;
@@ -1593,19 +1631,15 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (root.dataset.series === show?.id) return;
     if (!show) {
       delete root.dataset.series;
+      applyTheme();
     } else {
-      root.style.setProperty('--show-hue',String(showHue(show)));
-      root.style.setProperty('--show-chroma',String(show.chroma ?? .11));
       root.dataset.series = show.id;
-      if (show !== mentalist && show.hue == null && !Number.isFinite(seriesIdentity(show)?.hue) && /^https:\/\/static\.tvmaze\.com\//.test(show.image || '')) {
-        void posterHue(show.image).then(hue => {
-          if (hue == null || root.dataset.series !== show.id) return;
-          root.style.setProperty('--show-hue',String(hue));
-          applyTheme();
-        });
-      }
+      applyShowPalette(show,(hue,chroma) => {
+        if (root.dataset.series !== show.id) return;
+        setShowPalette(root,hue,chroma);
+        applyTheme();
+      });
     }
-    applyTheme();
   }
   function render(route) {
     palette(route);

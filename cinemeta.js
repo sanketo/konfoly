@@ -25,7 +25,7 @@ async function searchCinemeta(query,signal) {
   if (!Array.isArray(metas)) throw Error('Некорректный ответ Cinemeta.');
   return metas.filter(item => item?.type === 'series' && validImdb(item.id) && typeof item.name === 'string')
     .slice(0,12).map(item => ({externals:{imdb:item.id},name:item.name,years:item.releaseInfo,imdbScore:imdbScore(item.imdbRating),
-      poster:catalogImage(item.poster),summary:item.description}));
+      poster:catalogImage(item.poster),summary:item.description,genres:item.genres || item.genre}));
 }
 
 async function seriesMeta(id,signal) {
@@ -37,6 +37,11 @@ async function seriesMeta(id,signal) {
 
 async function loadCinemetaRating(id,signal) {
   return imdbScore((await seriesMeta(id,signal)).imdbRating);
+}
+
+async function loadCinemetaGenres(id,signal) {
+  const meta = await seriesMeta(id,signal);
+  return meta.genres || meta.genre;
 }
 
 async function loadCinemetaSeries(id,signal) {
@@ -55,4 +60,4 @@ async function loadCinemetaSeries(id,signal) {
     description:meta.description,years:meta.releaseInfo,imdbScore:imdbScore(meta.imdbRating)};
 }
 
-export {cinemetaOrigin,cinemetaImages,validImdb,imdbScore,searchCinemeta,loadCinemetaRating,loadCinemetaSeries};
+export {cinemetaOrigin,cinemetaImages,validImdb,imdbScore,searchCinemeta,loadCinemetaRating,loadCinemetaGenres,loadCinemetaSeries};

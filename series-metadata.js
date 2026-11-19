@@ -4,7 +4,7 @@ import {canonicalEpisode, seriesIdentity} from './series-config.js';
 import {integrationSettings} from './integrations.js';
 import {breakingBad, interns, seriesEditorial, seriesPremises} from './series-data.js';
 import {localizedSeriesTitle} from './series-titles-ru.js';
-import {imdbScore, loadCinemetaRating, validImdb} from './cinemeta.js';
+import {imdbScore, loadCinemetaGenres, loadCinemetaRating, validImdb} from './cinemeta.js';
 import {descriptionLanguage, translatePublicDescription} from './description-translation.js';
 import {loadAppleAgeRating} from './series-age-ratings.js';
 
@@ -26,6 +26,31 @@ const seriesMetadata = (() => {
     {country:'AU',label:'Австралия',pattern:/^(?:G|PG|M|MA\s?15\+|R\s?18\+)$/}
   ];
   const fskRatings = {'Q20644794':0,'Q20644795':6,'Q20644796':12,'Q20644797':16,'Q20644798':18};
+  const genreLabels = new Map([
+    ['action','Боевик'],['adventure','Приключения'],['anime','Аниме'],['animation','Анимация'],
+    ['biography','Биография'],['children','Детский'],['comedy','Комедия'],['crime','Криминал'],
+    ['documentary','Документальный'],['drama','Драма'],['espionage','Шпионский'],['family','Семейный'],
+    ['fantasy','Фэнтези'],['food','Кулинария'],['game-show','Телеигра'],['history','Исторический'],
+    ['horror','Ужасы'],['legal','Юридический'],['medical','Медицинский'],['music','Музыкальный'],
+    ['musical','Мюзикл'],['mystery','Детектив'],['nature','Природа'],['reality','Реалити-шоу'],
+    ['reality-tv','Реалити-шоу'],['romance','Мелодрама'],['sci-fi','Фантастика'],['science-fiction','Фантастика'],
+    ['short','Короткометражный'],['sport','Спорт'],['sports','Спорт'],['supernatural','Мистика'],
+    ['talk-show','Ток-шоу'],['thriller','Триллер'],['travel','Путешествия'],['war','Военный'],['western','Вестерн']
+  ]);
+
+  function localizedGenres(value) {
+    const entries = Array.isArray(value) ? value : [];
+    return [...new Set(entries.map(entry => {
+      if (typeof entry !== 'string') return '';
+      const name = text(entry,64);
+      return genreLabels.get(name.toLowerCase().replaceAll(' ','-')) || name;
+    }).filter(Boolean))].slice(0,8);
+  }
+  function showGenres(show) {
+    const data = read(show);
+    return [...new Set([...localizedGenres(data.mazeGenres),...localizedGenres(show.genres),
+      ...localizedGenres(data.cinemetaGenres),...localizedGenres(data.kpGenres)])].slice(0,8);
+  }
 
   function apiKey() {
     try { return sessionStorage.getItem(keyName) || ''; } catch { return ''; }
@@ -202,6 +227,7 @@ const seriesMetadata = (() => {
     if (signal.aborted || result.id !== id) return;
     save(show,{
       mazeSynopsis:plotSynopsis(plain(result.summary)),
+      mazeGenres:localizedGenres(result.genres),
       mazeOriginalTitle:text(result.name,230),
       mazeYears:[result.premiered,result.ended].map(date => text(date,4)).filter(Boolean).join('–'),
       mazePlotCheckedAt:Date.now()
@@ -394,9 +420,20 @@ const seriesMetadata = (() => {
     const data = read(show);
     const key = apiKey();
     const jobs = [];
-    const plotJob = !curatedPlot(show) && !fresh(data.mazePlotCheckedAt)
+    const needsGenres = !showGenres(show).length && !Object.hasOwn(data,'mazeGenres');
+    const plotJob = (needsGenres || (!curatedPlot(show) && !fresh(data.mazePlotCheckedAt)))
       ? loadMazePlot(show,signal,onChange).catch(() => {}) : null;
     if (plotJob) jobs.push(plotJob);
+    if (!showGenres(show).length && validImdb(show.imdb?.id) && !fresh(data.cinemetaGenresCheckedAt)) {
+      jobs.push((async () => {
+        await plotJob;
+        if (signal.aborted || showGenres(show).length) return;
+        const cinemetaGenres = localizedGenres(await loadCinemetaGenres(show.imdb.id,signal));
+        if (signal.aborted) return;
+        save(show,{cinemetaGenres,cinemetaGenresCheckedAt:Date.now()});
+        if (cinemetaGenres.length) onChange();
+      })().catch(() => {}));
+    }
     if (!ageRating(show) && !fresh(data.appleAgeCheckedAt)) {
       jobs.push((async () => {
         await plotJob;
@@ -477,7 +514,7 @@ const seriesMetadata = (() => {
         await logoJob;
       })());
     }
-    if (key && (!fresh(data.kpCheckedAt) || !Object.hasOwn(data,'kpDescription') ||
+    if (key && (!fresh(data.kpCheckedAt) || !Object.hasOwn(data,'kpDescription') || !Object.hasOwn(data,'kpGenres') ||
         (!russianAgeRating(editorialAge) && !Object.hasOwn(data,'kpAgeRating')))) {
       jobs.push((async () => {
         const id = await kinopoiskId(show,signal).catch(() => null);
@@ -490,8 +527,9 @@ const seriesMetadata = (() => {
         const kpId = detail.kinopoiskId;
         if (signal.aborted) return;
         const kpAgeRating = russianAgeRating(detail.ratingAgeLimits);
-        save(show,{kpAgeRating});
-        if (kpAgeRating) onChange();
+        const kpGenres = localizedGenres(detail.genres?.map(item => item.genre));
+        save(show,{kpAgeRating,kpGenres});
+        if (kpAgeRating || kpGenres.length) onChange();
         const result = await kpRequest(kpId,'/seasons',key,signal);
         if (signal.aborted) return;
         const episodes = {};
@@ -613,8 +651,10 @@ const seriesMetadata = (() => {
     const translated = savedSource === synopsis ? data.translatedShow.description : '';
     const description = curated || (kpSynopsis ? {text:kpSynopsis,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'} :
       translated ? {text:translated,label:'Машинный перевод'} : {text:synopsis});
+    const genres = showGenres(show);
     return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,
-      description,originalDescription:translated && description.text === translated ? synopsis : '',ageRating:ageRating(show)};
+      description,originalDescription:translated && description.text === translated ? synopsis : '',ageRating:ageRating(show),
+      genres:genres.length ? genres : localizedGenres([show.genre])};
   }
   async function translateShow(show,signal,onChange,{online=false,onProgress}={}) {
     const original = details(show);
