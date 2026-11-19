@@ -13,9 +13,9 @@ function cachedEpisodes(mazeId) {
 function rememberEpisodes(mazeId,episodes) {
   const cache = readLocal(cacheKey);
   if (episodes.length < (cachedEpisodes(mazeId).episodes?.length || 0)) return;
-  const compact = episodes.map(({season,episode,title,mazeId,airdate,image,runtime}) =>
-    ({season,episode,title,mazeId,airdate,image,runtime}));
-  if (JSON.stringify(compact).length > 75000) return;
+  const compact = episodes.map(({season,episode,title,mazeId,airdate,image,runtime,source}) =>
+    ({season,episode,title,mazeId,airdate,image,runtime,source}));
+  if (JSON.stringify(compact).length > 200000) return;
   const others = Object.entries(cache).filter(([id]) => id !== String(mazeId))
     .sort((a,b) => b[1]?.savedAt - a[1]?.savedAt).slice(0,7);
   writeLocal(cacheKey,Object.fromEntries([[String(mazeId),{episodes:compact,savedAt:Date.now()}],...others]));

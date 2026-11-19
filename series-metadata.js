@@ -192,6 +192,17 @@ const seriesMetadata = (() => {
       wikiTitle:text(rows[0]?.wikiTitle?.value,230),ruTitle:text(rows[0]?.ruTitle?.value,230)
     };
   }
+  async function wikiEpisodeArticle(show,signal) {
+    const cachedTitle = read(show).enWikiTitle;
+    if (cachedTitle) return cachedTitle;
+    const imdb = show.imdb?.id;
+    const identity = /^tt\d{5,12}$/.test(imdb || '') ? 'wdt:P345 "' + imdb + '"' :
+      Number.isInteger(show.mazeId) ? 'wdt:P8600 "' + show.mazeId + '"' : '';
+    if (!identity) return '';
+    const rows = await wikidataRows('SELECT DISTINCT ?title WHERE { ?show ' + identity +
+      ' . ?page schema:about ?show ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?title . } LIMIT 2',signal);
+    return rows.length === 1 ? text(rows[0].title?.value,230) : '';
+  }
   async function kinopoiskId(show,signal) {
     const known = seriesIdentity(show)?.kinopoiskId || read(show).kpId;
     if (known) return known;
@@ -522,7 +533,7 @@ const seriesMetadata = (() => {
     } finally { translator.destroy(); }
   }
 
-  return {loadEpisodeTitles,searchTitles,catalogSearch,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {loadEpisodeTitles,searchTitles,catalogSearch,wikiEpisodeArticle,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();
 
 export {seriesMetadata};

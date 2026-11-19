@@ -2,6 +2,7 @@ import {canonicalEpisode, mentalistCatalog, seriesIdentity} from './series-confi
 import {breakingBad, interns, seriesEditorial} from './series-data.js';
 import {cachedEpisodes,rememberEpisodes} from './catalog-episodes.js';
 import {loadCinemetaSeries,searchCinemeta,validImdb} from './cinemeta.js';
+import {loadWikiEpisodes} from './wiki-episodes.js';
 import {seriesMetadata} from './series-metadata.js';
 import {readLocal, writeLocal} from './storage.js';
 import {$, make} from './dom.js';
@@ -129,7 +130,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         if (Date.now() - cached.savedAt > 86400000) refreshEpisodeLists.add(show);
       }
     }
-    if (!Array.isArray(show.episodes)) return {page:'series',show,loadEpisodes:true,overview:!parts[2] && !parts[3]};
+    if (!Array.isArray(show.episodes)) return {page:'series',show,loadEpisodes:true,overview:!parts[2] && !parts[3],
+      requestedSeason:Number(parts[2] || parts[3]) || undefined};
     if (parts[2] === 'all') return {page:'series',show,season:0};
     const season = Number(parts[2]);
     if (season && show.episodes.some(item => item.season === season)) return {page:'series',show,season};
@@ -247,10 +249,19 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (!episodes.length) throw Error('Нет пронумерованных серий');
     return episodes;
   }
-  async function fetchEpisodes(show,signal) {
+  async function fetchEpisodes(show,signal,{onSeasons,preferredSeason}={}) {
     const jobs = [];
     if (show.mazeId) jobs.push(fetchMazeEpisodes(show.mazeId,signal).then(episodes => ({episodes})));
     if (show.imdb?.id) jobs.push(loadCinemetaSeries(show.imdb.id,signal));
+    if (onSeasons) jobs.push((async () => {
+      await new Promise(resolve => setTimeout(resolve,1000));
+      if (signal.aborted) throw signal.reason;
+      const article = await seriesMetadata.wikiEpisodeArticle(show,signal);
+      if (!article) throw Error('Подтверждённая страница сериала не найдена.');
+      const episodes = await loadWikiEpisodes(article,signal,onSeasons,preferredSeason);
+      if (show.episodeCount && episodes.length < show.episodeCount) throw Error('Список эпизодов неполный.');
+      return {episodes};
+    })());
     const {episodes,poster,description,years} = await Promise.any(jobs);
     episodes.sort((a,b) => a.season - b.season || a.episode - b.episode);
     if (!signal.aborted) {
@@ -674,6 +685,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (first) actions.append(link(last ? '▶ Продолжить просмотр' : '▶ Открыть первую серию',
       watchPath(show,last || first),'filled'),
       link('Все эпизоды',seasonPath(show,last?.season || first.season),'tonal'));
+    if (episodeStatus) actions.append(episodeStatus);
     copy.append(heading,rating);
     const synopsis = make('p','synopsis');
     const attribution = make('p','muted synopsis-source');
@@ -734,7 +746,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       actions.append(translateShow);
     }
     updateShowDetails();
-    $('series').replaceChildren(hero,...(first ? [section] : [episodeStatus]),status);
+    $('series').replaceChildren(hero,...(first ? [section] : []),status);
     hydrate(show,updateShowDetails,status);
     void seriesMetadata.translateIfReady(show,null,metadataSession.signal,updateShowDetails);
   }
@@ -822,6 +834,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     important.onchange = update;
     update();
     section.append(toolbar,count,...(translate ? [translate] : []),status,list);
+    const episodeSource = episodes.find(item => item.source?.startsWith('https://en.wikipedia.org/wiki/'))?.source;
+    if (episodeSource) section.append(external('Список эпизодов · Википедия',episodeSource));
     $('series').replaceChildren(section);
     hydrate(show,update,status,episodes);
     void seriesMetadata.translateIfReady(show,episodes,metadataSession.signal,update,true);
@@ -1382,8 +1396,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         retry.onclick = renderCurrentRoute;
         loading.after(retry);
       }
-      const timer = setTimeout(() => { abort(); showFailure(); },8000);
-      void fetchEpisodes(route.show,controller.signal).then(episodes => {
+      const timer = setTimeout(() => { abort(); showFailure(); },20000);
+      void fetchEpisodes(route.show,controller.signal,{
+        preferredSeason:route.requestedSeason,
+        onSeasons:(loaded,total) => {
+          if (!controller.signal.aborted) loading.textContent = 'Загружаем сезоны · ' + loaded + ' из ' + total;
+        }
+      }).then(episodes => {
         if (controller.signal.aborted) return;
         route.show.episodes = episodes;
         if (imported.includes(route.show)) persistImports(imported);
