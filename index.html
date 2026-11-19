@@ -37,7 +37,6 @@
 <button id="library-undo" type="button" class="text-action" hidden>Вернуть</button>
 </div>
 <div id="library-grid" class="library-grid" hidden></div>
-<div id="library-featured"></div>
 </section>
 <section id="series" class="page" hidden></section>
 <section id="home" class="page home-page">
@@ -47,7 +46,7 @@
 <h1 class="show-wordmark"><img src="assets/mentalist-title.png" alt="Менталист" width="1450" height="248"></h1>
 <p class="show-title">The Mentalist</p><p class="eyebrow hero-facts">2008–2015 · Детектив · Возрастной рейтинг <span id="home-age-rating"></span></p></div>
 <div class="rating-row hero-ratings"><div id="series-ratings" class="rating-list"></div><button id="rate-show" class="rating-action">Моя оценка</button></div>
-<p class="synopsis">Бывший медиум Патрик Джейн помогает агенту Терезе Лисбон и её команде раскрывать убийства. Он замечает детали, которые упускает полиция, и ищет серийного убийцу, причастного к гибели его семьи.</p>
+<p class="synopsis" id="home-synopsis">Бывший медиум Патрик Джейн помогает агенту Терезе Лисбон и её команде раскрывать убийства. Он замечает детали, которые упускает полиция, и ищет серийного убийцу, причастного к гибели его семьи.</p>
 <div class="hero-actions"><button id="continue-button" class="filled">▶ Смотреть</button><a class="tonal" href="#catalog">Все эпизоды</a></div>
 <p id="continue-info" class="muted">7 сезонов · 151 серия</p>
 </div>
@@ -86,7 +85,7 @@
 <h1 class="page-title">Настройки</h1>
 <div class="settings-grid">
 <section class="settings-card"><h2>Оформление</h2><div class="select-field"><label for="theme">Тема</label><select id="theme"><option value="auto">Как в системе</option><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div><label class="switch-row"><input type="checkbox" id="new-year"> Новогодний режим</label></section>
-<section class="settings-card"><h2>Сюжет</h2><label class="switch-row"><input type="checkbox" id="spoilers"> Раскрывать спойлеры на странице серии</label><p class="muted">Блок «Сюжет и развязка» будет открыт по умолчанию.</p></section>
+<section class="settings-card"><h2>Сюжет</h2><div class="select-field"><label for="synopsis-language">Язык описаний сериалов</label><select id="synopsis-language"><option value="ru">Русский</option><option value="en">English</option></select></div><label class="switch-row"><input type="checkbox" id="spoilers"> Раскрывать спойлеры на странице серии</label><p class="muted">Блок «Сюжет и развязка» будет открыт по умолчанию.</p></section>
 <section class="settings-card"><h2>Просмотр</h2><p class="muted">Настройки сохраняются на этом устройстве.</p><p id="sync-status" class="muted" role="status">История сохраняется в этом браузере.</p></section>
 </div>
 <div id="integration-settings"></div>

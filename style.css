@@ -360,10 +360,14 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 .library-tile,.library-saved-card,.library-collection-card {
   --tile-accent:oklch(.63 var(--show-chroma, .11) var(--show-hue, 22));
   --tile-strength:clamp(17%,calc(var(--show-chroma, .11) * 160%),32%);
-  background:color-mix(in oklab,var(--tile-accent) var(--tile-strength),var(--container));
+  --tile-hover:0%;
+  background-color:var(--container);
+  background-image:linear-gradient(to bottom,
+    color-mix(in oklab,var(--tile-accent) calc(var(--tile-strength) + var(--tile-hover)),var(--container)) 56%,
+    color-mix(in oklab,var(--tile-accent) calc(var(--tile-strength) + var(--tile-hover) + 13%),var(--container)));
 }
 .library-tile:is(:hover,:focus-visible),:is(.library-saved-card,.library-collection-card):has(.library-tile:is(:hover,:focus-visible)) {
-  background:color-mix(in oklab,var(--tile-accent) calc(var(--tile-strength) + 8%),var(--container));
+  --tile-hover:6%;
 }
 .library-saved-card,.library-collection-card {
   display:grid;
@@ -592,7 +596,6 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 
 .hero .synopsis-source { margin-top:4px }
 .hero-description .synopsis { margin-top:0 }
-.hero-description :is(.tonal,.translation-status:not(:empty)) { margin-top:8px }
 @media(min-width:560px) { .hero-description { margin-top:16px } }
 
 .watch-preflight { margin-block:12px; max-width:min(340px,100%); }
@@ -606,13 +609,10 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 .header-search{color:var(--muted)}
 #library .library-add-panel {
   margin:0 0 20px;
-  box-shadow:0 0 24px 1px var(--search-glow);
+  box-shadow:inset 0 0 20px var(--search-glow);
 }
 .library-tile-original{font-size:.82rem;color:var(--muted)}
 .hero-russian-title{font-weight:650;margin-block:6px 2px}
-.hero .synopsis-original{margin-top:12px}
-.hero .synopsis-original summary{width:fit-content;cursor:pointer;color:var(--muted)}
-.hero .synopsis-original p{margin-top:6px}
 :root:not([data-theme=light]) .show-wordmark img[src*="avatar-airbender"]{filter:drop-shadow(0 0 1px #fff)}
 :root[data-theme=light] .show-wordmark img[src*="lanterns-logo"]{filter:brightness(.42)}
 

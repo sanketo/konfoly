@@ -32,7 +32,7 @@ function translationSegments(description) {
   return segments;
 }
 
-async function translatePublicDescription(description,sourceLanguage,signal) {
+async function translatePublicDescription(description,sourceLanguage,signal,targetLanguage='ru') {
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (signal.aborted) throw signal.reason;
@@ -41,12 +41,14 @@ async function translatePublicDescription(description,sourceLanguage,signal) {
   try {
     const translations = await Promise.all(translationSegments(description).map(async segment => {
       const url = new URL('/get',translationOrigin);
-      url.search = new URLSearchParams({q:segment,langpair:sourceLanguage + '|ru'});
+      url.search = new URLSearchParams({q:segment,langpair:sourceLanguage + '|' + targetLanguage});
       const response = await fetch(url,{signal:controller.signal,credentials:'omit',redirect:'error'});
       if (!response.ok) throw Error('Сервис перевода недоступен.');
       const result = await response.json();
       const translated = result.responseData?.translatedText;
-      if (Number(result.responseStatus) !== 200 || typeof translated !== 'string' || !/\p{Script=Cyrillic}/u.test(translated)) {
+      const expectedScript = targetLanguage === 'ru' ? /\p{Script=Cyrillic}/u : /\p{Script=Latin}/u;
+      if (Number(result.responseStatus) !== 200 || typeof translated !== 'string' ||
+          !expectedScript.test(translated) || translated.trim() === segment) {
         throw Error('Сервис не вернул перевод.');
       }
       return translated.trim();

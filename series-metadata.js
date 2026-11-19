@@ -2,7 +2,7 @@ import {readLocal, writeLocal} from './storage.js';
 import {mediaAddress} from './urls.js';
 import {canonicalEpisode, seriesIdentity} from './series-config.js';
 import {integrationSettings} from './integrations.js';
-import {breakingBad, interns, seriesEditorial, seriesPremises} from './series-data.js';
+import {breakingBad, interns, seriesEditorial, seriesEnglishPremises, seriesPremises} from './series-data.js';
 import {localizedSeriesTitle} from './series-titles-ru.js';
 import {imdbScore, loadCinemetaGenres, loadCinemetaRating, validImdb} from './cinemeta.js';
 import {descriptionLanguage, translatePublicDescription} from './description-translation.js';
@@ -325,8 +325,8 @@ const seriesMetadata = (() => {
       wikiTitle:text(rows[0]?.wikiTitle?.value,230),ruTitle:text(rows[0]?.ruTitle?.value,230)
     };
   }
-  async function wikiEpisodeArticle(show,signal) {
-    const cachedTitle = read(show).enWikiTitle;
+  async function wikiSeriesArticle(show,signal,language) {
+    const cachedTitle = read(show)[language === 'ru' ? 'wikiTitle' : 'enWikiTitle'];
     if (cachedTitle) return cachedTitle;
     const imdb = show.imdb?.id;
     const property = /^tt\d{5,12}$/.test(imdb || '') ? 'P345' : 'P8600';
@@ -334,29 +334,49 @@ const seriesMetadata = (() => {
     if (!id) return '';
     async function byId() {
       const rows = await wikidataRows('SELECT DISTINCT ?title WHERE { ?show wdt:' + property + ' "' + id +
-        '" . ?page schema:about ?show ; schema:isPartOf <https://en.wikipedia.org/> ; schema:name ?title . } LIMIT 2',signal);
+        '" . ?page schema:about ?show ; schema:isPartOf <https://' + language + '.wikipedia.org/> ; schema:name ?title . } LIMIT 2',signal);
       const article = rows.length === 1 && text(rows[0].title?.value,230);
       if (!article) throw Error('Статья сериала не найдена.');
       return article;
     }
     async function byTitle() {
       const title = show.original || show.title;
-      const language = /\p{Script=Cyrillic}/u.test(title) ? 'ru' : 'en';
+      const queryLanguage = cyrillic.test(title) ? 'ru' : 'en';
       const url = new URL('https://www.wikidata.org/w/api.php');
       const request = parameters => {
         url.search = new URLSearchParams({format:'json',origin:'*',...parameters});
         return json(url,{signal});
       };
-      const {search} = await request({action:'wbsearchentities',search:title,language,type:'item',limit:'10'});
+      const {search} = await request({action:'wbsearchentities',search:title,language:queryLanguage,type:'item',limit:'10'});
       const ids = (search || []).map(item => item.id).filter(value => /^Q\d+$/.test(value));
       if (!ids.length) throw Error('Статья сериала не найдена.');
-      const {entities} = await request({action:'wbgetentities',ids:ids.join('|'),props:'claims|sitelinks',sitefilter:'enwiki'});
+      const project = language + 'wiki';
+      const {entities} = await request({action:'wbgetentities',ids:ids.join('|'),props:'claims|sitelinks',sitefilter:project});
       const matches = Object.values(entities || {}).filter(entity => entity.claims?.[property]?.some(claim =>
-        claim.rank !== 'deprecated' && claim.mainsnak?.datavalue?.value === id)).map(entity => entity.sitelinks?.enwiki?.title).filter(Boolean);
+        claim.rank !== 'deprecated' && claim.mainsnak?.datavalue?.value === id)).map(entity => entity.sitelinks?.[project]?.title).filter(Boolean);
       if (matches.length !== 1) throw Error('Статья сериала не найдена.');
       return text(matches[0],230);
     }
     return Promise.any([byId(),byTitle()]);
+  }
+  const wikiEpisodeArticle = (show,signal) => wikiSeriesArticle(show,signal,'en');
+  async function wikiPlot(show,signal) {
+    const title = await wikiSeriesArticle(show,signal,'ru');
+    if (!title || signal.aborted) return null;
+    const url = new URL('https://ru.wikipedia.org/w/api.php');
+    const get = parameters => {
+      url.search = new URLSearchParams({action:'parse',format:'json',formatversion:'2',origin:'*',page:title,...parameters});
+      return json(url,{signal});
+    };
+    const {parse} = await get({prop:'sections'});
+    const section = parse?.sections?.find(item => /^(?:Сюжет|Синопсис|Завязка)$/iu.test(item.line));
+    if (!section || !/^\d+$/.test(section.index)) return null;
+    const article = await get({prop:'text',section:section.index});
+    const page = new DOMParser().parseFromString(article.parse?.text || '','text/html');
+    for (const element of page.querySelectorAll('sup,table,.hatnote,.mw-editsection')) element.remove();
+    const plot = [...page.querySelectorAll('p')].map(paragraph => plotSynopsis(paragraph.textContent))
+      .find(synopsis => synopsis.length >= 45 && cyrillic.test(synopsis));
+    return plot ? {text:plot,source:'https://ru.wikipedia.org/wiki/' + encodeURIComponent(title.replaceAll(' ','_')),label:'Википедия · CC BY-SA'} : null;
   }
   async function kinopoiskId(show,signal) {
     const known = seriesIdentity(show)?.kinopoiskId || read(show).kpId;
@@ -641,74 +661,90 @@ const seriesMetadata = (() => {
     };
   }
 
-  function details(show) {
+  function originalPlot(show) {
+    return plotSynopsis(show.description) || plotSynopsis(read(show).mazeSynopsis);
+  }
+  function russianPlot(show,includeTranslation=true) {
+    const data = read(show);
+    const curated = curatedPlot(show);
+    if (curated) return curated;
+    const kp = plotSynopsis(data.kpDescription);
+    if (cyrillic.test(kp)) return {text:kp,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'};
+    if (data.wikiPlot?.text) return data.wikiPlot;
+    const original = originalPlot(show);
+    if (cyrillic.test(original)) return {text:original};
+    if (includeTranslation && original && data.translatedShow?.source === original && cyrillic.test(data.translatedShow.description)) {
+      return {text:plotSynopsis(data.translatedShow.description)};
+    }
+    return {text:''};
+  }
+  function synopsisFor(show,language) {
+    const ru = russianPlot(show);
+    if (language !== 'en') return ru;
+    const authored = seriesEnglishPremises[show.mazeId ?? seriesIdentity(show)?.mazeId];
+    if (authored) return {text:authored};
+    const data = read(show);
+    const original = originalPlot(show);
+    const englishSource = descriptionLanguage(original) === 'en' && !cyrillic.test(original) ? original : '';
+    const cached = data.englishSynopsis;
+    if (ru.text && cached?.input === ru.text) return {...ru,text:cached.text};
+    if (ru.text && englishSource && !ru.source && data.translatedShow?.source === original &&
+        plotSynopsis(data.translatedShow.description) === ru.text) return {text:englishSource};
+    if (ru.text) return {text:''};
+    return {text:englishSource};
+  }
+  function details(show,language='ru') {
     const data = read(show);
     const editorial = seriesEditorial[show.mazeId];
-    const curated = curatedPlot(show);
-    const kpSynopsis = plotSynopsis(data.kpDescription);
-    const catalogSynopsis = plotSynopsis(show.description);
-    const savedSource = data.translatedShow?.source;
-    const synopsis = savedSource && [catalogSynopsis,data.mazeSynopsis].includes(savedSource) ? savedSource : catalogSynopsis || data.mazeSynopsis || '';
-    const translated = savedSource === synopsis ? data.translatedShow.description : '';
-    const description = curated || (kpSynopsis ? {text:kpSynopsis,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'} :
-      translated ? {text:translated,label:'Машинный перевод'} : {text:synopsis});
     const genres = showGenres(show);
     const rating = ageRating(show);
     const published = publishedAgeRating(show);
     return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,
-      description,originalDescription:translated && description.text === translated ? synopsis : '',ageRating:rating,
+      description:synopsisFor(show,language),ageRating:rating,
       ageRatingSource:published?.label === rating ? published?.source : undefined,
       genres:genres.length ? genres : localizedGenres([show.genre])};
   }
-  async function translateShow(show,signal,onChange,{online=false,onProgress}={}) {
-    const original = details(show);
-    const source = original.description.text;
-    const needsDescription = !!source && !cyrillic.test(source);
-    const needsTitle = !online && !!show.title && !cyrillic.test(original.title);
-    if (!needsDescription && !needsTitle) return;
-    const sourceLanguage = needsDescription ? descriptionLanguage(source) : languages[show.language] || 'en';
-    const output = {};
-    try {
-      const translator = await globalThis.Translator.create({sourceLanguage,targetLanguage:'ru',signal,
-        monitor(monitor) {
-          monitor.addEventListener('downloadprogress',event => {
-            onProgress?.('Загрузка языкового пакета · ' + Math.round(event.loaded * 100) + '%');
-          });
-        }});
-      try {
-        if (needsDescription) output.description = text(await translator.translate(source,{signal}));
-        if (needsTitle) output.title = text(await translator.translate(show.title,{signal}).catch(() => ''),230);
-      } finally {
-        translator.destroy();
-      }
-    } catch (error) {
-      if (signal.aborted) return;
-      if (!online) throw error;
-    }
-    if (online && needsDescription && !cyrillic.test(output.description || '')) {
-      onProgress?.('Переводим описание…');
-      output.description = await translatePublicDescription(source,sourceLanguage,signal);
-    }
+  async function loadSynopsis(show,language,signal,onChange) {
     if (signal.aborted) return;
-    if (cyrillic.test(output.description || '')) output.source = source;
-    else delete output.description;
-    if (Object.keys(output).length) {
-      save(show,{translatedShow:{...read(show).translatedShow,...output}});
-      onChange();
+    if (language === 'ru' && !russianPlot(show,false).text && !fresh(read(show).wikiPlotCheckedAt)) {
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      signal.addEventListener('abort',abort,{once:true});
+      const timer = setTimeout(abort,4500);
+      try {
+        const plot = await wikiPlot(show,controller.signal);
+        if (!signal.aborted) {
+          save(show,{wikiPlot:plot,wikiPlotCheckedAt:Date.now()});
+          if (plot) onChange();
+        }
+      } catch {} finally {
+        clearTimeout(timer);
+        signal.removeEventListener('abort',abort);
+      }
     }
+    if (signal.aborted || synopsisFor(show,language).text) return;
+    const fromRussian = language === 'en';
+    if (!fromRussian && !originalPlot(show) && !fresh(read(show).mazePlotCheckedAt)) {
+      await loadMazePlot(show,signal,onChange).catch(() => {});
+    }
+    const source = fromRussian ? russianPlot(show).text : originalPlot(show);
+    if (!source || signal.aborted || synopsisFor(show,language).text) return;
+    const translated = await translatePublicDescription(source,fromRussian ? 'ru' : descriptionLanguage(source),signal,language);
+    if (signal.aborted) return;
+    if (fromRussian) save(show,{englishSynopsis:{input:source,text:translated}});
+    else save(show,{translatedShow:{...read(show).translatedShow,source,description:translated}});
+    onChange();
   }
   function canTranslate(show) {
     return typeof globalThis.Translator?.create === 'function' && show.language !== 'Russian';
   }
   async function translateIfReady(show,items,signal,onChange,titlesOnly=false) {
-    if (!canTranslate(show) || typeof globalThis.Translator.availability !== 'function') return;
-    const description = items?.length ? '' : details(show).description.text;
-    const sourceLanguage = description && !cyrillic.test(description) ? descriptionLanguage(description) : languages[show.language] || 'en';
+    if (!items?.length || !canTranslate(show) || typeof globalThis.Translator.availability !== 'function') return;
+    const sourceLanguage = languages[show.language] || 'en';
     const options = {sourceLanguage,targetLanguage:'ru'};
     try {
       if (await globalThis.Translator.availability(options) !== 'available' || signal.aborted) return;
-      if (items?.length) await translate(show,items,signal,onChange,titlesOnly);
-      else await translateShow(show,signal,onChange);
+      await translate(show,items,signal,onChange,titlesOnly);
     } catch {}
   }
   async function translate(show,items,signal,onChange,titlesOnly=false) {
@@ -743,7 +779,7 @@ const seriesMetadata = (() => {
     } finally { translator.destroy(); }
   }
 
-  return {loadEpisodeTitles,searchTitles,catalogSearch,wikiEpisodeArticle,ageRating,imdbRating,loadImdbRating,rememberImdbRating,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {loadEpisodeTitles,searchTitles,catalogSearch,wikiEpisodeArticle,ageRating,imdbRating,loadImdbRating,rememberImdbRating,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,loadSynopsis,canTranslate,translate,plain};
 })();
 
 export {seriesMetadata};

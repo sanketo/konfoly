@@ -31,8 +31,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     official:interns.official,tmdbId:interns.tmdbId,hue:interns.hue,imdb:importedInterns.imdb || interns.imdb
   });
   const indexedShows = Object.entries(seriesEditorial).flatMap(([id,entry]) => {
-    const {title,original,years,image,description,source,imdb,seasonCount,episodeCount,featured,genres} = entry;
-    const show = {id:'tvmaze-' + id,mazeId:Number(id),title,original,years,image,description,source,imdb,seasonCount,episodeCount,featured,genres};
+    const {title,original,years,image,description,source,imdb,seasonCount,episodeCount,genres} = entry;
+    const show = {id:'tvmaze-' + id,mazeId:Number(id),title,original,years,image,description,source,imdb,seasonCount,episodeCount,genres};
     const existing = imported.find(item => matchesCatalog(item,{id:show.mazeId,externals:{imdb:imdb?.id}}));
     if (!existing) return [show];
     for (const [key,value] of Object.entries(show)) if (value != null && !existing[key]) existing[key] = value;
@@ -64,7 +64,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   let selectedShow;
   let selectedEpisode;
   let selectedSeason;
-  let quickPlayPath;
   let cleanup;
   let metadataSession;
   let episodeDetails;
@@ -403,29 +402,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     searchPreviews.delete(show.id);
     return !show.sessionOnly;
   }
-  function renderFeatured() {
-    const featured = libraryShows().filter(show => show.featured);
-    const sections = [['series','Сериалы для просмотра'],['anime','Аниме']].map(([type,title]) => {
-      const section = make('section','library-featured');
-      const heading = make('div','section-title');
-      heading.append(make('h2',null,title));
-      const tiles = make('div','library-grid');
-      for (const show of featured.filter(item => item.featured === type)) {
-        const card = make('div','library-collection-card');
-        const path = watchPath(show,{season:1,episode:1});
-        const watch = link('▶ Смотреть',path,'library-tile-action tonal');
-        watch.setAttribute('aria-label','Смотреть: ' + seriesDisplayTitle(show));
-        watch.onclick = event => {
-          if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) quickPlayPath = path;
-        };
-        card.append(showCard(show,card,true),watch);
-        tiles.append(card);
-      }
-      section.append(heading,tiles);
-      return section;
-    });
-    $('library-featured').replaceChildren(...sections);
-  }
   function renderLibrary(focusSearch) {
     const grid = $('library-grid');
     const session = new AbortController();
@@ -532,7 +508,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       undo.onclick = null;
     }
     renderSavedGrid();
-    renderFeatured();
     function searchCard(show) {
       const card = make('div','library-collection-card');
       const add = make('button','library-tile-action tonal','Добавить в каталог');
@@ -803,13 +778,14 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     return button;
   }
   function importance(show,item) {
-    const editorial = seriesImportance[show.mazeId]?.[episodeKey(item)];
+    const mazeId = show.mazeId ?? seriesIdentity(show)?.mazeId;
+    const editorial = seriesImportance[mazeId]?.[episodeKey(item)];
     const override = readLocal('konfoly-importance:' + show.id)[episodeKey(item)];
     return {
       importance:override || editorial?.importance || 'unconfirmed',
       importanceReason:editorial?.reason,
       description:editorial?.description,
-      source:editorial && show.source || (editorial && 'https://www.tvmaze.com/shows/' + show.mazeId),
+      source:editorial && (item.mazeId ? 'https://www.tvmaze.com/episodes/' + item.mazeId : 'https://api.tvmaze.com/shows/' + mazeId + '/episodes'),
       confidence:override ? 'manual' : editorial ? 'high' : 'unknown'
     };
   }
@@ -857,7 +833,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         synopsis.open = synopsisOpen ?? preferences.spoilers;
         const russian = /\p{Script=Cyrillic}/u.test(text.description);
         if (!russian && synopsisOpen == null) synopsis.open = false;
-        synopsis.append(make('summary',null,russian ? 'Описание от источника · возможны спойлеры' : 'Описание на языке оригинала'),make('p',null,text.description),
+        synopsis.append(make('summary',null,'Описание серии · возможны спойлеры'),make('p',null,text.description),
           make('p','muted',text.source));
         content.append(synopsis);
       } else if (!info.description) content.append(make('p','muted','Описание этой серии отсутствует.'));
@@ -939,15 +915,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     copy.append(heading,rating);
     const description = make('div','hero-description');
     const synopsis = make('p','synopsis');
+    const synopsisLanguage = preferences.synopsisLanguage;
+    synopsis.lang = synopsisLanguage;
     const attribution = make('p','muted synopsis-source');
-    const originalSynopsis = make('details','synopsis-original');
-    const originalText = make('p','muted');
-    originalSynopsis.append(make('summary',null,'Описание на языке оригинала'),originalText);
-    const translationStatus = make('p','muted translation-status');
-    translationStatus.setAttribute('role','status');
-    const translateShow = make('button','tonal','Перевести описание');
-    translateShow.type = 'button';
-    description.append(synopsis,attribution,originalSynopsis,translateShow,translationStatus);
+    description.append(synopsis,attribution);
     copy.append(description);
     const resumeInfo = make('p','muted hero-resume');
     copy.append(actions,resumeInfo);
@@ -1006,43 +977,35 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     status.setAttribute('role','status');
     function updateShowDetails() {
       renderTitle();
-      const details = seriesMetadata.details(show);
+      const details = seriesMetadata.details(show,synopsisLanguage);
       const ageText = 'Возрастной рейтинг ' + (details.ageRating || 'не указан');
       const age = details.ageRatingSource ? external(ageText,details.ageRatingSource) : ageText;
       const info = [showYears(show),details.genres.join(', ')].filter(Boolean).join(' · ');
       facts.replaceChildren(...(info ? [info,' · '] : []),age);
-      const foreign = !!details.description.text && !/\p{Script=Cyrillic}/u.test(details.description.text);
-      synopsis.textContent = details.description.text || 'Сюжетное описание пока недоступно.';
-      translateShow.hidden = !foreign;
-      originalSynopsis.hidden = !details.originalDescription;
-      originalText.textContent = details.originalDescription;
+      synopsis.textContent = details.description.text || (synopsisLanguage === 'en'
+        ? 'Synopsis unavailable.' : 'Сюжетное описание пока недоступно.');
       attribution.replaceChildren();
       if (details.description.source) attribution.append(external(details.description.label,details.description.source));
       else if (details.description.label) attribution.textContent = details.description.label;
       attribution.hidden = !attribution.textContent;
+      return details.description.text;
     }
-    translateShow.onclick = async () => {
-      const signal = metadataSession.signal;
-      translateShow.disabled = true;
-      translationStatus.textContent = 'Переводим описание…';
-      try {
-        await seriesMetadata.translateShow(show,signal,updateShowDetails,{
-          online:true,onProgress(message) { if (!signal.aborted) translationStatus.textContent = message; }
-        });
-        if (!signal.aborted) translationStatus.textContent = translateShow.hidden ? 'Описание переведено.' : '';
-      } catch {
-        if (!signal.aborted) translationStatus.textContent = 'Не удалось перевести описание. Попробуй ещё раз.';
-      } finally {
-        translateShow.disabled = false;
-      }
-    };
+    let descriptionRequest;
+    let descriptionRequested = false;
+    function refreshSynopsis() {
+      const currentSynopsis = updateShowDetails();
+      if (descriptionRequest || (descriptionRequested && currentSynopsis)) return;
+      descriptionRequested = true;
+      descriptionRequest = seriesMetadata.loadSynopsis(show,synopsisLanguage,metadataSession.signal,updateShowDetails)
+        .catch(() => {}).finally(() => { descriptionRequest = null; });
+    }
     updateOverview();
     $('series').replaceChildren(hero,section,status);
-    hydrate(show,updateShowDetails,status);
+    hydrate(show,refreshSynopsis,status);
+    refreshSynopsis();
     void seriesMetadata.loadImdbRating(show,metadataSession.signal,() => {
       setPublicRating(rating,seriesMetadata.imdbRating(show));
     }).catch(() => {});
-    void seriesMetadata.translateIfReady(show,null,metadataSession.signal,updateShowDetails);
     return updateOverview;
   }
   function seasonsFor(show) {
@@ -1573,11 +1536,12 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (russian !== plot.classList.contains('localized-plot') || plot.hidden) plot.open = russian && preferences.spoilers;
       plot.classList.toggle('localized-plot',russian);
       plot.hidden = !metadata.description;
-      plot.querySelector('summary').firstChild.textContent = russian ? 'Сюжет и развязка ' : 'Описание на языке оригинала ';
+      plot.querySelector('summary').firstChild.textContent = russian ? 'Сюжет и развязка ' : 'Описание серии ';
       plotContent.replaceChildren();
       if (metadata.description) plotContent.append(make('p',null,metadata.description),make('p','muted',metadata.source));
       const marked = !preferences.hideImportance && ['key','important'].includes(info.importance);
       detailsButton.textContent = marked ? importanceLabels[info.importance] : 'О серии';
+      detailsButton.className = marked ? 'importance-button ' + info.importance : 'tonal';
     }
     updateMetadata();
     const rating = item.imdb && ratingBadge('IMDb',item.imdb,imdbLink(item.imdb));
@@ -1609,10 +1573,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (sourceBox.open) sourceBox.close();
       screen.replaceChildren();
     };
-    if (quickPlayPath === watchPath(show,item)) {
-      quickPlayPath = undefined;
-      startAutomatic();
-    }
   }
   const posterColors = new Map();
   function posterPalette(url) {
@@ -1673,7 +1633,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     }
   }
   function render(route) {
-    if (quickPlayPath !== location.hash) quickPlayPath = undefined;
     palette(route);
     $('series').classList.toggle('watch-page',!!route.episode);
     metadataSession?.abort();

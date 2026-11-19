@@ -41,7 +41,7 @@ const seriesIdentities = [
   {mazeId:48450,imdbId:'tt12343534',kinopoiskId:1381125,hue:282,chroma:.19},
   {mazeId:4201,imdbId:'tt4508902',kinopoiskId:942544,hue:78,chroma:.18},
   {mazeId:44776,hue:151,chroma:.17},
-  {mazeId:8,imdbId:'tt3107288',hue:54,chroma:.18}
+  {mazeId:13,imdbId:'tt3107288',hue:54,chroma:.18}
 ];
 
 function seriesIdentity(show) {

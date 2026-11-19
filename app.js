@@ -15,6 +15,7 @@ import {createCinemaPlayer} from './player-ui.js';
 import {mediaAddress} from './urls.js';
 import {integrationSettings} from './integrations.js';
 import {createSeriesLibrary} from './series-library.js';
+import {seriesEnglishPremises} from './series-data.js';
 import {createTelegramSync} from './telegram-sync.js';
 
 const watchLayout = $('watch-layout')?.content;
@@ -50,6 +51,7 @@ const preferences = {
   theme:['auto','dark','light'].includes(saved.theme) ? saved.theme : 'auto',
   newYear: saved.newYear === true,
   spoilers: saved.spoilers === true,
+  synopsisLanguage:saved.synopsisLanguage === 'en' ? 'en' : 'ru',
   hideImportance: saved.hideImportance === true,
   sources:saved.sources || {},
   template:saved.template || null,
@@ -63,6 +65,14 @@ const preferences = {
 };
 
 $('home-age-rating').textContent = mentalistCatalog.ageRating;
+const homeSynopsis = $('home-synopsis');
+const russianHomeSynopsis = homeSynopsis.textContent;
+
+function applySynopsisLanguage() {
+  homeSynopsis.lang = preferences.synopsisLanguage;
+  homeSynopsis.textContent = preferences.synopsisLanguage === 'en'
+    ? seriesEnglishPremises[mentalistCatalog.mazeId] : russianHomeSynopsis;
+}
 
 function episodeHash(item) { return '#watch/' + item.season + '/' + item.episode; }
 function persist() {
@@ -814,6 +824,13 @@ function applyTheme() {
   platform.applyChrome(color);
 }
 setSelectValue('theme',preferences.theme);
+setSelectValue('synopsis-language',preferences.synopsisLanguage);
+$('synopsis-language').onchange = event => {
+  preferences.synopsisLanguage = event.target.value;
+  applySynopsisLanguage();
+  persist();
+};
+applySynopsisLanguage();
 $('theme').onchange = event => {preferences.theme=event.target.value;persist();applyTheme()};
 $('theme-toggle').onclick = () => {
   setSelectValue('theme',document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');

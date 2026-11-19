@@ -168,13 +168,12 @@ test('series pages prefer a short premise and resolve ratings by either identity
   assert.equal(anime.ageRatingSource,'https://www.netflix.com/title/81278456');
 });
 
-test('translation falls back online using the synopsis language and keeps the original premise', async (context) => {
+test('show descriptions default to Russian and keep English in the selected language', async (context) => {
   const show = {id:'tvmaze-91918',title:'Test Show',language:'Japanese',
     description:'A Japanese television series created by Test Studio. Mina searches for a missing friend. An old letter gives her a lead.'};
   const premise = 'Mina searches for a missing friend. An old letter gives her a lead.';
   const translated = 'Мина ищет пропавшего друга. Старое письмо даёт ей зацепку.';
-  Object.defineProperty(globalThis,'Translator',{configurable:true,value:{create:async () => { throw Error('Unavailable'); }}});
-  context.after(() => { delete globalThis.Translator; });
+  seriesMetadata.read(show).wikiPlotCheckedAt = Date.now();
   context.mock.method(globalThis,'fetch',async (url,options) => {
     assert.equal(url.origin,'https://api.mymemory.translated.net');
     assert.equal(url.searchParams.get('q'),premise);
@@ -182,12 +181,16 @@ test('translation falls back online using the synopsis language and keeps the or
     assert.equal(options.credentials,'omit');
     return Response.json({responseStatus:200,responseData:{translatedText:translated}});
   });
-  assert.equal(seriesMetadata.details(show).description.text,premise);
+  assert.equal(seriesMetadata.details(show).description.text,'');
+  assert.equal(seriesMetadata.details(show,'en').description.text,premise);
   const refresh = context.mock.fn();
-  await seriesMetadata.translateShow(show,new AbortController().signal,refresh,{online:true});
+  await seriesMetadata.loadSynopsis(show,'ru',new AbortController().signal,refresh);
   assert.equal(refresh.mock.callCount(),1);
   assert.equal(seriesMetadata.details(show).description.text,translated);
-  assert.equal(seriesMetadata.details(show).originalDescription,premise);
+  assert.equal(seriesMetadata.details(show,'en').description.text,premise);
+  const flash = {id:'imdb-tt3107288',imdb:{id:'tt3107288'},title:'The Flash'};
+  assert.match(seriesMetadata.details(flash).description.text,/Барри Аллен/u);
+  assert.match(seriesMetadata.details(flash,'en').description.text,/Barry Allen/);
 });
 
 test('an imported show can use a regional TMDB certificate when a Russian rating is missing', async (context) => {
