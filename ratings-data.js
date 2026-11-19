@@ -156,3 +156,5 @@ const externalRatingData = {
     "7:13": {"id":"tt4177592","score":9.1,"votes":4974},
   }
 };
+
+export {externalRatingData};

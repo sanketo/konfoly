@@ -1,9 +1,11 @@
+import {seriesIdentity} from './series-config.js';
+
 const breakingBad = {
   "id": "breaking-bad",
   "mazeId": 169,
   "tmdbId": 1396,
   "hue": 89,
-  "logo": "assets/breaking-bad-logo.svg?v=35",
+  "logo": "assets/breaking-bad-logo.svg",
   "title": "Во все тяжкие",
   "original": "Breaking Bad",
   "years": "2008–2013",
@@ -95,7 +97,7 @@ const interns = {
   imdb:{id:'tt1647423'},
   source:'https://www.kinopoisk.ru/film/501998/episodes/',
   official:'https://premier.one/show/interny',
-  episodes:[60,60,61,98].flatMap((count,index) => Array.from({length:count},(_,number) => ({
+  episodes:seriesIdentity({id:"interns",mazeId:3391}).seasonLengths.flatMap((count,index) => Array.from({length:count},(_,number) => ({
     season:index+1,episode:number+1,title:'Серия ' + (number+1)
   })))
 };
@@ -117,3 +119,5 @@ const seriesEditorial = {
     }
   }}
 };
+
+export {breakingBad, interns, seriesEditorial};

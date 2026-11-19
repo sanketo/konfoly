@@ -62,3 +62,5 @@ function bindVideoAmbient(video,canvas) {
     canvas.width = canvas.width;
   };
 }
+
+export {bindVideoAmbient};

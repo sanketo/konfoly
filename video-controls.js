@@ -53,3 +53,5 @@ async function requestCinemaFullscreen(element) {
   }
   return true;
 }
+
+export {bindVideoKeys, isMobileCinema, requestCinemaFullscreen};

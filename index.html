@@ -5,30 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#151315">
 <title>konfoly · Сериалы</title>
-<script>
-if (!location.hash || location.hash === '#library') document.documentElement.dataset.startLibrary = '';
-</script>
-<link rel="stylesheet" href="style.css?v=43">
-<script defer src="episodes.js?v=13"></script>
-<script defer src="episode-titles-ru.js?v=24"></script>
-<script defer src="importance.js?v=13"></script>
-<script defer src="integrations.js?v=42"></script>
-<script defer src="providers.js?v=42"></script>
-<script defer src="platform.js?v=30"></script>
-<script defer src="video-progress.js?v=34"></script>
-<script defer src="video-controls.js?v=19"></script>
-<script defer src="video-ambient.js?v=23"></script>
-<script defer src="player-ui.js?v=22"></script>
-<script defer src="telegram-sync.js?v=15"></script>
-<script defer src="select-ui.js?v=41"></script>
-<script defer src="ratings-data.js?v=21"></script>
-<script defer src="ratings.js?v=29"></script>
-<script defer src="series-data.js?v=43"></script>
-<script defer src="series-titles-ru.js?v=35"></script>
-<script defer src="series-importance.js?v=36"></script>
-<script defer src="series-metadata.js?v=43"></script>
-<script defer src="series-library.js?v=43"></script>
-<script defer src="app.js?v=42"></script>
+<meta name="konfoly-csp">
+<script src="boot.js"></script>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
 </head>
 <body>
 <div id="snow-field" class="snow-field" aria-hidden="true" hidden></div>
@@ -59,14 +39,14 @@ if (!location.hash || location.hash === '#library') document.documentElement.dat
 <div class="hero">
 <div class="hero-copy">
 <div class="hero-heading">
-<h1 class="show-wordmark"><img src="assets/mentalist-title.png?v=17" alt="Менталист" width="1450" height="248"></h1>
+<h1 class="show-wordmark"><img src="assets/mentalist-title.png" alt="Менталист" width="1450" height="248"></h1>
 <p class="show-title">The Mentalist</p><p class="eyebrow hero-facts">2008–2015 · Детектив</p></div>
 <div class="rating-row hero-ratings"><div id="series-ratings" class="rating-list"></div><button id="rate-show" class="rating-action">Моя оценка</button></div>
 <p class="synopsis">Патрик Джейн помогает калифорнийскому бюро расследований раскрывать преступления. Его главный инструмент — умение замечать то, что ускользает от других.</p>
 <div class="hero-actions"><button id="continue-button" class="filled">▶ Смотреть</button><a class="tonal" href="#catalog">Все эпизоды</a></div>
 <p id="continue-info" class="muted">7 сезонов · 151 серия</p>
 </div>
-<div class="hero-poster" style="--poster-art:url('assets/mentalist-poster.webp?v=20')"><img class="poster" src="assets/mentalist-poster.webp?v=20" width="620" height="930" alt="Постер сериала «Менталист»" fetchpriority="high"></div>
+<div class="hero-poster"><img class="poster" src="assets/mentalist-poster.webp" width="620" height="930" alt="Постер сериала «Менталист»" fetchpriority="high"></div>
 </div>
 <section class="home-library" aria-labelledby="library-heading">
 <div class="section-title"><div><p class="eyebrow">КАТАЛОГ</p><h2 id="library-heading">Выбрать сезон</h2></div><a href="#catalog" class="text-action">Все серии →</a></div>

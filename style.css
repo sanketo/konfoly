@@ -1,4 +1,4 @@
-@import url("player.css?v=20");
+@import url("./player.css");
 :root {
  color-scheme:dark;
  --surface:#151315; --container:#211e22; --high:#2e292e; --text:#f4edf0; --muted:#cbbfc5;
@@ -502,3 +502,5 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 
 @media(max-width:360px){.header-search{padding-inline:9px;font-size:.875rem}.top-tools{gap:2px}}
 @media(max-width:250px){.top{gap:4px}.brand{gap:5px;font-size:.95rem}.brand span{width:34px;height:34px}.brand img{width:25px;height:26px}#theme-toggle{width:41px}}
+
+#home .hero-poster{--poster-art:url("./assets/mentalist-poster.webp")}

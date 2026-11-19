@@ -1,27 +1,28 @@
+import {canonicalEpisode, combinedEpisodeRule, mentalistCatalog, seriesIdentity} from './series-config.js';
+import {integrationSettings} from './integrations.js';
+import {mediaAddress} from './urls.js';
+import {readLocal} from './storage.js';
+import {make} from './dom.js';
+import {enhance} from './select-ui.js';
+import {seriesMetadata} from './series-metadata.js';
+
 const mediaProviders = [
   {id:'native',title:'Наш плеер',detail:'Рекомендуемый · ТВ3, Universal и TVShows при наличии',action:'Смотреть'},
   {id:'endpoint',title:'Общий источник',detail:'Прямое видео в нашем плеере по ID сериала и номеру серии.',action:'Смотреть'},
   {id:'stremio',title:'Stremio',detail:'Прямое видео из подключённого дополнения в нашем плеере.',action:'Смотреть'},
-  {id:'namy',title:'Namy / Collaps',detail:'Запасной плеер с рекламой. Настройки и прогресс управляются поставщиком.',action:'Открыть'},
   {id:'alloha',title:'Alloha',detail:'Встроенный плеер · возможна реклама.',action:'Настроить'},
-  {id:'tomion',title:'Tomion',detail:'Резервный источник. Ранее возвращал ошибку доступа.',action:'Проверить'},
   {id:'file',title:'Файл с устройства',detail:'MP4, WebM и другие форматы, которые поддерживает браузер.',action:'Выбрать видео'},
+  ...Object.entries(integrationSettings.embeds || {}).map(([id,{title,detail}]) => ({id,title,detail,action:'Открыть'})),
   {id:'custom',title:'Свой источник',detail:'Прямое видео или встраиваемый плеер.',action:'Настроить ссылку'}
 ];
-function mediaAddress(template, season, episode) {
-  try {
-    const url = new URL(template.replaceAll('{season}', season).replaceAll('{episode}', episode));
-    return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
-  } catch { return null; }
+function configuredEmbed(id,season,episode) {
+  const source = integrationSettings.embeds?.[id];
+  if (!source) return null;
+  return mediaAddress(source.address,season,source.episodeOverrides?.[season+':'+episode] ?? episode);
 }
-function embedAddress(id,season,episode) {
-  if (id === 'namy') return 'https://api.namy.ws/embed/movie/454?season=' + season + '&episode=' + (season === 7 && episode >= 12 ? '12-13' : episode);
-  if (id === 'tomion') return 'https://tomion.org/tvb/412344?episode=' + episode + '&season=' + season + '&skips=1&vonly=true';
-  return null;
-}
+
 function seriesNativeId(show) {
-  const known = {tt1647423:501998,tt3398228:818185,tt0903747:404900,tt3032476:796660,tt1475582:502838};
-  return show.mazeId === 184 ? 818185 : known[show.imdb?.id] || null;
+  return seriesIdentity(show)?.kinopoiskId || null;
 }
 
 function canResolveSeriesNative(show) {
@@ -29,12 +30,15 @@ function canResolveSeriesNative(show) {
 }
 const nativePlaylists = new Map();
 async function nativeRequest(path,signal) {
-  const response = await fetch('https://plapi.cdnvideohub.com/api/v1/player/sv/' + path,{signal});
+  const base = integrationSettings.native?.address;
+  if (!base) throw Error('Наш источник отключён.');
+  const response = await fetch(new URL(path,base).href,{signal});
   if (!response.ok) throw Error('Источник недоступен. Повтори попытку.');
   return response.json();
 }
 async function nativePlaylist(kinopoiskId,season,number,signal) {
-  const query = 'playlist?pub=10428&id=' + kinopoiskId + '&aggr=kp&ep=' + number + '&sn=' + season;
+  const query = 'playlist?' + new URLSearchParams({pub:integrationSettings.native?.publisher,
+    id:kinopoiskId,aggr:'kp',ep:number,sn:season});
   const cached = nativePlaylists.get(query);
   if (cached && Date.now() - cached.time < 180000) return cached.rows;
   const list = await nativeRequest(query,signal);
@@ -50,13 +54,14 @@ function nativeVoices(rows) {
 }
 async function discoverNativeVoices(kinopoiskId,season,episode,signal) {
   const rows = await nativePlaylist(kinopoiskId,season,episode,signal);
-  if (kinopoiskId !== 412344 || season !== 3 || episode !== 24) return nativeVoices(rows);
-  const finale = await nativePlaylist(kinopoiskId,season,23,signal).catch(() => []);
-  return nativeVoices([...rows,...finale.filter(row => row.voiceStudio === 'ТВ3')]);
+  const rule = combinedEpisodeRule(kinopoiskId,season,episode);
+  if (!rule || episode === rule.first) return nativeVoices(rows);
+  const merged = await nativePlaylist(kinopoiskId,season,rule.first,signal).catch(() => []);
+  return nativeVoices([...rows,...merged.filter(row => row.voiceStudio === rule.voice)]);
 }
-async function resolveNative({season,episode,voice,quality,kinopoiskId=412344},signal) {
-  const combined = kinopoiskId === 412344 && voice === 'ТВ3' && season === 3 && episode >= 23;
-  const matching = await nativePlaylist(kinopoiskId,season,combined ? 23 : episode,signal);
+async function resolveNative({season,episode,voice,quality,kinopoiskId=mentalistCatalog.kinopoiskId},signal) {
+  const combined = voice && combinedEpisodeRule(kinopoiskId,season,episode,voice);
+  const matching = await nativePlaylist(kinopoiskId,season,combined ? combined.first : episode,signal);
   const voices = nativeVoices(matching).filter(item => !combined || item.id === voice);
   const items = matching.filter(row => !voice || row.voiceStudio === voice);
   if (!items.length) throw Error(voice
@@ -77,16 +82,12 @@ async function resolveNative({season,episode,voice,quality,kinopoiskId=412344},s
     const streams = [];
     for (const key of candidates) {
       const url = mediaAddress(media.sources?.[key] || '',season,episode);
-      if (!url || !new URL(url).hostname.endsWith('.okcdn.ru') || seen.has(url)) continue;
+      if (!url || !new URL(url).hostname.endsWith('.' + integrationSettings.native?.mediaDomain) || seen.has(url)) continue;
       seen.add(url);
       const format = key === 'hlsUrl' ? 'hls' : undefined;
       const qualityNote = quality === 'fullhd' && !format && key !== 'mpegFullHdUrl' ? ' · Выбрано доступное качество' : '';
-      const measured = kinopoiskId === 412344 && season === 4 && episode === 11 &&
-        voice === 'ТВ3' && quality === 'fullhd' && key === 'mpegFullHdUrl';
-      streams.push({
-        url,format,combined,label:(item.voiceStudio || voice || 'Наш плеер') + qualityNote,
-        metadata:measured ? 'H.264 · видео 1,86 Мбит/с · AAC 262 кбит/с' : ''
-      });
+      streams.push({url,format,combined,label:(item.voiceStudio || voice || 'Наш плеер') + qualityNote});
+
     }
     if (streams.length) {
       const [stream,...alternatives] = streams;
@@ -140,26 +141,18 @@ async function resolveSeriesSource(source,item,signal) {
 const episodeEndpointKey = 'konfoly-episode-endpoint-v1';
 
 function episodeEndpoint() {
-  return window.konfolyIntegrations?.episodeEndpoint || readLocal(episodeEndpointKey).url || '';
+  return integrationSettings.episodeEndpoint || readLocal(episodeEndpointKey).url || '';
 }
 
 function integrationEditorAvailable() {
   return ['localhost','127.0.0.1','[::1]'].includes(location.hostname);
 }
 function allowedIntegrationEmbed(url) {
-  const configured = window.konfolyIntegrations?.embedOrigins;
+  const configured = integrationSettings.embedOrigins;
   return Array.isArray(configured) && configured.includes(new URL(url).origin);
 }
-function providerEpisode(show,item) {
-  if (show.mazeId !== 3391 || show.id === 'interns') return item;
-  const absolute = Number(/^Серия\s+(\d+)$/iu.exec(item.title || '')?.[1]);
-  const bounds = [60,120,181,279];
-  const index = bounds.findIndex(last => absolute > 0 && absolute <= last);
-  if (index < 0) throw Error('Номер этой серии не удалось сопоставить с источником.');
-  return {...item,season:index+1,episode:absolute-(bounds[index-1] || 0)};
-}
 async function resolveEpisodeEndpoint(show,item,signal,choice) {
-  item = providerEpisode(show,item);
+  item = canonicalEpisode(show,item);
   const address = mediaAddress(episodeEndpoint(),item.season,item.episode);
   if (!address) throw Error('Укажи общий видеоисточник в настройках.');
   const request = new URL(address);
@@ -199,7 +192,7 @@ const stremioSourceKey = 'konfoly-stremio-source-v1';
 let stremioManifest;
 
 function stremioSource() {
-  return window.konfolyIntegrations?.stremioManifest || readLocal(stremioSourceKey).url || '';
+  return integrationSettings.stremioManifest || readLocal(stremioSourceKey).url || '';
 }
 
 function stremioManifestAddress(value) {
@@ -221,7 +214,7 @@ function canUseStremio(show) {
 }
 
 async function resolveStremio(show,item,signal,choice) {
-  item = providerEpisode(show,item);
+  item = canonicalEpisode(show,item);
   const imdb = show.imdb?.id;
   if (!canUseStremio(show)) throw Error('Для этого сериала нет IMDb ID, который нужен дополнению.');
   const address = stremioManifestAddress(stremioSource());
@@ -342,7 +335,7 @@ function openVideoStream(video,url,{format,onError,onBlocked,onAudioTracks,start
     loadHls().then(Hls => {
       if (stopped) return;
       if (Hls.isSupported()) {
-        hls = new Hls({enableWorker:false,capLevelToPlayerSize:true});
+        hls = new Hls({enableWorker:typeof Worker === 'function',capLevelToPlayerSize:true});
         hls.on(Hls.Events.ERROR,(_event,data) => {
           if (data.fatal) fail(data.type === Hls.ErrorTypes.NETWORK_ERROR ? 2 : 4);
         });
@@ -429,18 +422,18 @@ function renderStreamChoices(container,name,items=[],selected,onChange,showSingl
   const field = make('div','watch-track-field');
   field.append(make('label',null,name),select);
   container.append(field);
-  window.enhanceKinosalSelect?.(select);
+  enhance(select);
 }
 
 function previewEpisodeVoices(show,item,signal,callback) {
   const native = async () => {
-    const id = seriesNativeId(show) || (show.mazeId === 116 ? 412344 : await seriesMetadata.kinopoiskId(show,signal));
+    const id = seriesNativeId(show) || await seriesMetadata.kinopoiskId(show,signal);
     if (!id) return [];
-    const number = providerEpisode(show,item);
+    const number = canonicalEpisode(show,item);
     return discoverNativeVoices(id,number.season,number.episode,signal);
   };
   const providers = [
-    ['native',native,canResolveSeriesNative(show) || show.mazeId === 116],
+    ['native',native,canResolveSeriesNative(show)],
     ['stremio',async () => (await resolveStremio(show,item,signal)).voices,stremioSource() && canUseStremio(show)],
     ['endpoint',async () => (await resolveEpisodeEndpoint(show,item,signal)).voices,episodeEndpoint()]
   ].filter(([, , enabled]) => enabled);
@@ -455,3 +448,5 @@ function previewEpisodeVoices(show,item,signal,callback) {
     }
   }).catch(() => {});
 }
+
+export {configuredEmbed, mediaProviders, seriesNativeId, canResolveSeriesNative, nativePlaylists, nativeRequest, nativePlaylist, nativeVoices, discoverNativeVoices, resolveNative, createExternalVideoFrame, seriesSource, resolveSeriesSource, episodeEndpointKey, episodeEndpoint, integrationEditorAvailable, allowedIntegrationEmbed, resolveEpisodeEndpoint, stremioSourceKey, stremioManifest, stremioSource, stremioManifestAddress, fetchAddonJson, canUseStremio, resolveStremio, hlsScript, loadHls, openVideoStream, localEpisodeFolders, indexEpisodeFiles, renderStreamChoices, previewEpisodeVoices};

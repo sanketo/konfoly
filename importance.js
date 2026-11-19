@@ -116,3 +116,5 @@ const importanceCatalog = Object.fromEntries(Object.entries(importanceGroups).fl
     importance, importanceReason, source:episodeGuide, confidence:importance === 'regular' ? 'medium' : 'high'
   }])
 ));
+
+export {importanceLabels, episodeGuide, importanceGroups, importanceCatalog};

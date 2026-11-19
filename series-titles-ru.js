@@ -20,3 +20,5 @@ const seriesTitlesRu = {
 function localizedSeriesTitle(show,item) {
   return seriesTitlesRu[show.mazeId]?.[item.season - 1]?.[item.episode - 1] || item.title;
 }
+
+export {seriesTitlesRu, localizedSeriesTitle};

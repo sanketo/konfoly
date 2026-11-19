@@ -1,3 +1,7 @@
+import {bindVideoAmbient} from './video-ambient.js';
+import {bindPointerBoost, playbackTime} from './video-progress.js';
+import {requestCinemaFullscreen} from './video-controls.js';
+
 function createCinemaPlayer(video,options={}){
  const icons={
   play:'<path d="M8 5L20 12L8 19Z" fill="currentColor" stroke="none"/>',
@@ -60,3 +64,5 @@ function createCinemaPlayer(video,options={}){
  video.volume=options.volume??1;speed.value=String(options.rate||1);updateVolume();updateState();updateTime();
  return {setBoost(active){shell.classList.toggle('boosting',active);show()},destroy(){stopAmbient();pointerBoost.destroy();clearTimeout(hideTimer);listeners.forEach(remove=>remove())}};
 }
+
+export {createCinemaPlayer};

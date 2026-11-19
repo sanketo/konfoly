@@ -1,4 +1,5 @@
 const playbackStoreKey='mentalist-progress-v1';
+const defaultCompletionTime=2400;
 function readPlaybackMemory(storeKey=playbackStoreKey){
  try{
   const data=JSON.parse(localStorage.getItem(storeKey));if(!data||typeof data!=='object')return {last:null};
@@ -13,7 +14,7 @@ function bindPlaybackMemory(video,context,onStatus=()=>{},options={}){
  function save(force=false){
   if(!ready||!hasPlayed||!Number.isFinite(video.duration)||video.duration<=0||!Number.isFinite(video.currentTime))return;
   const credits=Math.min(60,video.duration*.05);
-  const watchedAt=Math.min(options.completionTime ?? (context.combined?4800:2400),video.duration-credits);
+  const watchedAt=Math.min(options.completionTime ?? defaultCompletionTime,video.duration-credits);
   const justCompleted=!completed&&(video.ended||video.currentTime>=watchedAt);
   if(justCompleted)completed=true;
   const now=Date.now();if(!force&&!justCompleted&&now-lastSave<4000)return;lastSave=now;
@@ -137,3 +138,5 @@ function watchPlaybackHealth(video,onFailure,{delay=14000}={}) {
   document.removeEventListener('visibilitychange',visibility);
  };
 }
+
+export {playbackStoreKey, readPlaybackMemory, playbackTime, bindPlaybackMemory, bindPointerBoost, watchPlaybackHealth};

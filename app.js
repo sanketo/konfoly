@@ -1,4 +1,21 @@
-const $ = id => document.getElementById(id);
+import {$, episodeId, key, make, openSheet} from './dom.js';
+import {configuredEmbed, createExternalVideoFrame, episodeEndpoint, episodeEndpointKey, indexEpisodeFiles, integrationEditorAvailable, localEpisodeFolders, mediaProviders, openVideoStream, previewEpisodeVoices, renderStreamChoices, resolveEpisodeEndpoint, resolveNative, resolveStremio, stremioManifestAddress, stremioSource, stremioSourceKey} from './providers.js';
+import {readLocal, writeLocal} from './storage.js';
+import {bindPlaybackMemory, playbackStoreKey, playbackTime, readPlaybackMemory, watchPlaybackHealth} from './video-progress.js';
+import {episodeCatalog} from './episodes.js';
+import {combinedEpisodeRule, mentalistCatalog} from './series-config.js';
+import {refreshKinosalSelect} from './select-ui.js';
+import {platform} from './platform.js';
+import {importanceCatalog, importanceLabels} from './importance.js';
+import {ratingBadge, renderEpisodeRatings, renderSeasonRatings, renderSeriesRatings} from './ratings.js';
+import {episodeTitlesRu} from './episode-titles-ru.js';
+import {externalRatingData} from './ratings-data.js';
+import {bindVideoKeys, isMobileCinema, requestCinemaFullscreen} from './video-controls.js';
+import {createCinemaPlayer} from './player-ui.js';
+import {mediaAddress} from './urls.js';
+import {createSeriesLibrary} from './series-library.js';
+import {createTelegramSync} from './telegram-sync.js';
+
 const watchLayout = $('watch-layout')?.content;
 const integrationLayout = $('integration-settings-layout')?.content;
 if (integrationLayout && integrationEditorAvailable()) $('integration-settings').append(integrationLayout.cloneNode(true));
@@ -38,20 +55,12 @@ const preferences = {
   alloha:typeof saved.alloha === 'string' ? saved.alloha : '',
   importance:saved.importance || {},
   selected:mediaProviders.some(provider => provider.id === saved.selected) ? saved.selected : 'native',
-  voice:typeof saved.voice === 'string' && saved.voice.trim() && saved.voice.length <= 80 ? saved.voice : 'ТВ3',
+  voice:typeof saved.voice === 'string' && saved.voice.trim() && saved.voice.length <= 80 ? saved.voice : mentalistCatalog.defaultVoice,
   quality:saved.quality === 'hd' ? 'hd' : 'fullhd',
   rate:[.75,1,1.25,1.5,1.75,2].includes(saved.rate) ? saved.rate : 1,
   volume:typeof saved.volume === 'number' && saved.volume >= 0 && saved.volume <= 1 ? saved.volume : 1
 };
 
-function readLocal(key) {
-  try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; }
-}
-function writeLocal(key,value) {
-  try { localStorage.setItem(key,JSON.stringify(value)); } catch {}
-}
-function episodeId(season,episode) { return season + ':' + episode; }
-function key(item) { return episodeId(item.season,item.episode); }
 function episodeHash(item) { return '#watch/' + item.season + '/' + item.episode; }
 function persist() {
   writeLocal(settingsKey,{...saved,...preferences,season:current.season,episode:current.episode});
@@ -69,34 +78,30 @@ function latestView() {
   if (last && !last.completed && episodeById.has(episodeId(last.season,last.episode))) return last;
   if (!last) return null;
   const completed = episodeById.get(episodeId(last.season,last.episode));
-  const combinedFinale = last.season === 3 && last.episode === 23 && last.source === 'native' && last.voice === 'ТВ3';
-  const next = completed && episodeCatalog[episodeCatalog.indexOf(completed) + (combinedFinale ? 2 : 1)];
+  const combined = last.source === 'native' && last.voice &&
+    combinedEpisodeRule(mentalistCatalog.kinopoiskId,last.season,last.episode,last.voice);
+  const final = combined ? episodeById.get(episodeId(combined.season,combined.last)) : completed;
+  const next = final && episodeCatalog[episodeCatalog.indexOf(final)+1];
   return next ? {...next,time:0} : null;
 }
 function setSelectValue(id,value) {
   $(id).value = value;
-  window.refreshKinosalSelect?.(id);
-}
-function make(tag, className, content) {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (content !== undefined) element.textContent = content;
-  return element;
+  refreshKinosalSelect(id);
 }
 function chooseRoute() {
   const hash = location.hash.slice(1);
-  const library = window.konfolyLibrary?.match(hash,platform.start);
-  if (library) return library;
+  const libraryRoute = library.match(hash,platform.start);
+  if (libraryRoute) return libraryRoute;
   const match = /^watch\/(\d+)\/(\d+)$/.exec(hash);
   const start = /^s(\d+)e(\d+)$/.exec(platform.start || '');
   const route = match || (hash.startsWith('tgWebApp') || !hash ? start : null);
   const item = route && episodeById.get(episodeId(route[1],route[2]));
   return { page:item || hash === 'watch' ? 'watch' : ['catalog','settings'].includes(hash) ? hash : 'home', item };
 }
-function route() {
+function renderCurrentRoute() {
   const next = chooseRoute();
   document.documentElement.removeAttribute?.('data-start-library');
-  window.konfolyLibrary?.selectRoute(next);
+  library.selectRoute(next);
   const switchedPage = next.page !== page;
   const changedEpisode = next.item && key(next.item) !== key(current);
   if (next.page !== page || changedEpisode) {
@@ -117,14 +122,14 @@ function route() {
       {duration:matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 330,easing:'cubic-bezier(.22,1,.36,1)'});
   }
   for (const link of document.querySelectorAll('.navigation a')) {
-    const active = window.konfolyLibrary?.navigation(link,next) ?? (link.hash === '#' + page);
+    const active = library.navigation(link,next) ?? (link.hash === '#' + page);
     if (active) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   }
   platform.showBack(!['home','library'].includes(page));
   if (page === 'catalog') renderCatalog();
   if (page === 'watch') renderWatch();
-  window.konfolyLibrary?.render(next);
+  library.render(next);
 
   refreshHome();
   persist();
@@ -135,7 +140,7 @@ function openEpisode(item, time = null) {
   current = item;
   pendingPosition = time;
   history.pushState(null,'',episodeHash(item));
-  route();
+  renderCurrentRoute();
 
 }
 function refreshHome() {
@@ -207,7 +212,7 @@ function renderCatalog() {
   $('episodes').replaceChildren(...(rows.length ? rows.map(item => episodeCard(item)) : [make('p','empty','Серии не найдены. Измени поиск или фильтры.')]));
 }
 function visibleTitle(item) {
-  if (!preferences.spoilers && key(item) === '6:8') return '';
+  if (!preferences.spoilers && mentalistCatalog.spoilerTitles.includes(key(item))) return '';
   return episodeTitlesRu[item.season - 1]?.[item.episode - 1] || item.title;
 }
 function episodeCard(item, options = null) {
@@ -315,12 +320,13 @@ function clearMedia() {
   renderStreamChoices($('watch-audio'),'Аудиодорожка');
 }
 function moveEpisode(direction) {
-  let index = episodeCatalog.indexOf(current);
-  if (preferences.selected === 'native' && preferences.voice === 'ТВ3' && current.season === 3 && current.episode >= 23) {
-    index = episodeCatalog.indexOf(episodeById.get(direction > 0 ? '3:24' : '3:23'));
-  }
-  let item = episodeCatalog[index + direction];
-  if (direction < 0 && preferences.selected === 'native' && preferences.voice === 'ТВ3' && key(current) === '4:1') item = episodeById.get('3:23');
+  const rules = preferences.selected === 'native'
+    ? mentalistCatalog.combinedEpisodes.filter(rule => rule.voice === preferences.voice) : [];
+  const combined = rules.find(rule => rule.season === current.season && current.episode >= rule.first && current.episode <= rule.last);
+  const edge = combined ? episodeById.get(episodeId(combined.season,direction > 0 ? combined.last : combined.first)) : current;
+  let item = episodeCatalog[episodeCatalog.indexOf(edge) + direction];
+  const preceding = item && direction < 0 && rules.find(rule => rule.season === item.season && rule.last === item.episode);
+  if (preceding) item = episodeById.get(episodeId(preceding.season,preceding.first));
   if (item) openEpisode(item);
 }
 $('previous').onclick = () => moveEpisode(-1);
@@ -392,7 +398,7 @@ function renderWatch() {
     voicePreview = controller;
     const timer = setTimeout(() => controller.abort(),9000);
     controller.signal.addEventListener('abort',() => clearTimeout(timer),{once:true});
-    previewEpisodeVoices({mazeId:116,imdb:externalRatingData.series.imdb},active,controller.signal,items => {
+    previewEpisodeVoices({...mentalistCatalog,imdb:externalRatingData.series.imdb},active,controller.signal,items => {
       if (media || request || $('screen').querySelector('iframe')) return;
       const desired = preselectedVoice || 'native:' + preferences.voice;
       const selected = items.some(item => item.id === desired) ? desired : items[0].id;
@@ -467,11 +473,13 @@ function mountVideo(url, label, resumeTime, source, metadata = '', recoveryAttem
   });
   const stopMemory = bindPlaybackMemory(video,{season:item.season,episode:item.episode,source,combined,voice:source === 'native' ? preferences.voice : null},
     status => {$('source-status').textContent = label + ' · ' + status},{
-      resumeTime,onSave(entry){
+      resumeTime,completionTime:combined?.completionTime,onSave(entry){
         saveViewing(entry);
         if (combined && entry.completed) {
-          const other = episodeById.get(episodeId(item.season,item.episode === 23 ? 24 : 23));
-          if (other && !historyFor(other).completed) saveViewing({...entry,episode:other.episode});
+          for (let number = combined.first; number <= combined.last; number++) {
+            const other = episodeById.get(episodeId(combined.season,number));
+            if (other && !historyFor(other).completed) saveViewing({...entry,episode:other.episode});
+          }
         }
         refreshHome();
         updateWatched();
@@ -549,7 +557,7 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
     screenAction('',null,loading);
     $('source-status').textContent = loading;
     try {
-      const show = {mazeId:116,imdb:externalRatingData.series.imdb};
+      const show = {...mentalistCatalog,imdb:externalRatingData.series.imdb};
       const result = id === 'endpoint'
           ? await resolveEpisodeEndpoint(show,current,controller.signal,choice)
           : id === 'stremio'
@@ -563,7 +571,10 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
       }
       if (id === 'native' && result.voice) preferences.voice = result.voice;
       mountVideo(result.url,result.label || 'Общий источник',time,id,result.metadata,recoveryAttempt,result.combined,result.format,result.alternatives,{items:result.voices,selected:result.voice});
-      if (result.combined) $('episode-number').textContent = 'СЕЗОН 3 · ОБЪЕДИНЁННЫЙ ФИНАЛ 23–24';
+      if (result.combined) {
+        const {season,first,last} = result.combined;
+        $('episode-number').textContent = 'СЕЗОН ' + season + ' · ОБЪЕДИНЁННЫЕ СЕРИИ ' + first + '–' + last;
+      }
     } catch (error) {
       if (request === controller) {
         if (id === 'native' && choice == null && (stremioSource() || episodeEndpoint())) {
@@ -580,16 +591,11 @@ async function launch(id,time = 0,recoveryAttempt = 0,choice) {
   }
   const custom = id === 'custom' ? configuredSource() : null;
   const template = custom?.url || (id === 'alloha' ? preferences.alloha : null);
-  const url = template ? mediaAddress(template,current.season,current.episode) : embedAddress(id,current.season,current.episode);
+  const url = template ? mediaAddress(template,current.season,current.episode) : configuredEmbed(id,current.season,current.episode);
   if (!url) { playbackError('Нужен действительный HTTPS-адрес.'); return; }
   if (custom?.kind === 'video') { mountVideo(url,'Свой источник',time,id); return; }
   $('screen').replaceChildren(createExternalVideoFrame(url,id === 'alloha' ? 'Alloha' : 'Внешний видеоплеер'));
   $('source-status').textContent = 'Внешний плеер · точная позиция и качество недоступны';
-}
-function openSheet(id) {
-  const sheet = $(id);
-  if (!sheet.open) sheet.showModal();
-  platform.showBack(true);
 }
 function showSourceForm(id) {
   $('source-form').hidden = id !== 'custom';
@@ -809,12 +815,16 @@ $('spoilers').checked = preferences.spoilers;
 $('spoilers').onchange = event => {preferences.spoilers=event.target.checked;$('episode-plot').open=preferences.spoilers;persist()};
 matchMedia('(prefers-color-scheme: light)').addEventListener('change',applyTheme);
 for (const sheet of document.querySelectorAll('dialog')) sheet.addEventListener('close',() => platform.showBack(page !== 'home'));
+const library = createSeriesLibrary({
+  preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute
+});
+
 platform.configure(() => {
   const sheet = document.querySelector('dialog[open]');
   if (sheet) sheet.close();
-  else location.hash = window.konfolyLibrary?.back(page) || (page === 'watch' ? 'catalog' : 'home');
+  else location.hash = library.back(page) || (page === 'watch' ? 'catalog' : 'home');
 },applyTheme,telegram => {
-  if (!location.hash || location.hash.startsWith('#tgWebApp')) route();
+  if (!location.hash || location.hash.startsWith('#tgWebApp')) renderCurrentRoute();
   else platform.showBack(page !== 'home');
   if (!telegram.isVersionAtLeast?.('6.9') || !telegram.CloudStorage) return;
   telegramSync = createTelegramSync(telegram.CloudStorage,{
@@ -842,9 +852,9 @@ platform.configure(() => {
   });
 });
 document.querySelector('.skip').onclick = event => {event.preventDefault();$('content').focus()};
-window.addEventListener('hashchange',route);
+window.addEventListener('hashchange',renderCurrentRoute);
 applyTheme();
 applyNewYear();
 renderSeriesRatings();
 seasonButtons();
-route();
+renderCurrentRoute();

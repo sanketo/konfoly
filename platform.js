@@ -54,3 +54,5 @@ const platform = (() => {
     tap(){telegram?.HapticFeedback?.selectionChanged()}
   };
 })();
+
+export {platform};

@@ -1,8 +1,20 @@
-window.konfolyLibrary = (() => {
-  const mentalist = {
-    id:'mentalist',mazeId:116,title:'Менталист',original:'The Mentalist',years:'2008–2015',
-    image:'assets/mentalist-poster.webp?v=20'
-  };
+import {canonicalEpisode, mentalistCatalog, seriesIdentity} from './series-config.js';
+import {breakingBad, interns, seriesEditorial} from './series-data.js';
+import {seriesMetadata} from './series-metadata.js';
+import {readLocal, writeLocal} from './storage.js';
+import {$, make} from './dom.js';
+import {bindPlaybackMemory, playbackTime, readPlaybackMemory, watchPlaybackHealth} from './video-progress.js';
+import {ratingBadge, setPersonalRatingButton} from './ratings.js';
+import {seriesImportance} from './series-importance.js';
+import {importanceLabels} from './importance.js';
+import {platform} from './platform.js';
+import {canResolveSeriesNative, canUseStremio, createExternalVideoFrame, episodeEndpoint, indexEpisodeFiles, integrationEditorAvailable, localEpisodeFolders, openVideoStream, previewEpisodeVoices, renderStreamChoices, resolveEpisodeEndpoint, resolveNative, resolveSeriesSource, resolveStremio, seriesNativeId, seriesSource, stremioSource} from './providers.js';
+import {mediaAddress} from './urls.js';
+import {bindVideoKeys, isMobileCinema, requestCinemaFullscreen} from './video-controls.js';
+import {createCinemaPlayer} from './player-ui.js';
+
+function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute}) {
+  const mentalist = mentalistCatalog;
   const libraryKey = 'konfoly-library-v1';
   const pinnedKey = 'konfoly-pinned-series-v1';
   const imported = readImports();
@@ -23,7 +35,7 @@ window.konfolyLibrary = (() => {
   const selectedEpisodes = new Map();
   const seriesDisplayTitle = show => {
     const title = seriesMetadata.details(show).title;
-    return title === show.title && show.mazeId === 184 ? 'Конь БоДжек' : title;
+    return title === show.title ? seriesIdentity(show)?.title || title : title;
   };
   const activeKey = 'konfoly-active-series-v1';
   let active;
@@ -35,12 +47,24 @@ window.konfolyLibrary = (() => {
   let metadataSession;
   let episodeDetails;
 
+  function compactImport(show) {
+    const {id,mazeId,title,language,years,image,description,source,imdb} = show;
+    return {id,mazeId,title,language,years,image,description,source,imdb,
+      episodeCount:show.episodes?.length ?? show.episodeCount,
+      seasonCount:show.episodes ? new Set(show.episodes.map(item => item.season)).size : show.seasonCount};
+  }
+  function persistImports(catalog) {
+    const compact = catalog.map(compactImport);
+    // Keep catalog metadata bounded independently of the episode lists.
+    return JSON.stringify(compact).length <= 384000 && writeLocal(libraryKey,compact);
+  }
   function readImports() {
-    try {
-      const entries = JSON.parse(localStorage.getItem(libraryKey));
-      return Array.isArray(entries) ? entries.filter(show =>
-        /^tvmaze-\d+$/.test(show.id) && Array.isArray(show.episodes) && show.episodes.length) : [];
-    } catch { return []; }
+    const entries = readLocal(libraryKey);
+    if (!Array.isArray(entries)) return [];
+    const catalog = entries.filter(show => /^tvmaze-\d+$/.test(show?.id) &&
+      Number.isInteger(show.mazeId) && typeof show.title === 'string');
+    if (catalog.some(show => Array.isArray(show.episodes))) persistImports(catalog);
+    return catalog;
   }
   function link(label,path,className) {
     const element = make('a',className,label);
@@ -66,7 +90,7 @@ window.konfolyLibrary = (() => {
     return element;
   }
   function findEpisode(show,season,episode) {
-    return show.episodes.find(item => item.season === Number(season) && item.episode === Number(episode));
+    return show.episodes?.find(item => item.season === Number(season) && item.episode === Number(episode));
   }
   function resume(show) {
     const last = readPlaybackMemory(progressKey(show)).last;
@@ -84,6 +108,7 @@ window.konfolyLibrary = (() => {
     const parts = /^series\/([a-z0-9-]+)(?:\/season\/(all|\d+)|\/(\d+)\/(\d+))?$/.exec(hash);
     const show = parts && shows.get(parts[1]);
     if (!show || show === mentalist) return parts ? {page:'library'} : null;
+    if (!Array.isArray(show.episodes)) return {page:'series',show,loadEpisodes:true};
     if (parts[2] === 'all') return {page:'series',show,season:0};
     const season = Number(parts[2]);
     if (season && show.episodes.some(item => item.season === season)) return {page:'series',show,season};
@@ -107,6 +132,11 @@ window.konfolyLibrary = (() => {
     return show === mentalist ? null : show;
   }
   function activeEpisode(show) {
+    if (!show.episodes) {
+      const last = readPlaybackMemory(progressKey(show)).last;
+      return {season:active?.season || active?.episodeSeason || last?.season || 1,
+        episode:active?.episode || last?.episode || 1};
+    }
     const validSeason = item => item && (!active?.season || item.season === active.season);
     const item = findEpisode(show,active?.episodeSeason,active?.episode);
     if (validSeason(item)) return item;
@@ -147,14 +177,14 @@ window.konfolyLibrary = (() => {
   }
   function showYears(show) { return seriesEditorial[show.mazeId]?.years || show.years; }
   function caption(show,includeYears=true) {
-    const count = show.episodes?.length || 151;
-    const seasons = show.episodes ? new Set(show.episodes.map(item => item.season)).size : 7;
-    return [includeYears && showYears(show),'Сезонов ' + seasons,'Серий ' + count].filter(Boolean).join(' · ');
+    const count = show.episodes?.length ?? show.episodeCount;
+    const seasons = show.episodes ? new Set(show.episodes.map(item => item.season)).size : show.seasonCount;
+    return [includeYears && showYears(show),seasons && 'Сезонов ' + seasons,count && 'Серий ' + count].filter(Boolean).join(' · ');
   }
   function showHue(show) {
     if (show === mentalist) return 22;
     if (Number.isFinite(show.hue)) return show.hue;
-    if (show.mazeId === 44776 || show.id === 'tvmaze-44776') return 151;
+    if (Number.isFinite(seriesIdentity(show)?.hue)) return seriesIdentity(show).hue;
     return [...show.id].reduce((value,char) => (value * 31 + char.charCodeAt(0)) % 360,0);
   }
   function showCard(show,add) {
@@ -171,7 +201,7 @@ window.konfolyLibrary = (() => {
     if (facts) copy.append(make('span','muted',facts));
     if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
     tile.style.setProperty('--tile-hue',showHue(show));
-    if (show.hue == null && show.mazeId !== 44776 && show.id !== 'tvmaze-44776' && show.image) void posterHue(show.image).then(hue => {
+    if (show.hue == null && !Number.isFinite(seriesIdentity(show)?.hue) && show.image) void posterHue(show.image).then(hue => {
       if (hue != null) tile.style.setProperty('--tile-hue',hue);
     });
     tile.append(poster(show),copy);
@@ -188,15 +218,20 @@ window.konfolyLibrary = (() => {
   function mazeImage(image) {
     return /^https:\/\/static\.tvmaze\.com\//.test(image?.medium || '') ? image.medium : '';
   }
-  async function importShow(raw,signal) {
-    const known = libraryShows().find(show => show.mazeId === raw.id ||
-      (raw.externals?.imdb && show.imdb?.id === raw.externals.imdb));
-    if (known) return known;
-    const episodes = (await tvmaze('shows/' + raw.id + '/episodes',signal))
+  async function fetchEpisodes(mazeId,signal) {
+    const episodes = (await tvmaze('shows/' + mazeId + '/episodes',signal))
       .filter(item => Number.isInteger(item.season) && Number.isInteger(item.number))
       .map(item => ({season:item.season,episode:item.number,title:item.name,image:mazeImage(item.image),runtime:item.runtime,synopsis:seriesMetadata.plain(item.summary)}))
       .sort((a,b) => a.season - b.season || a.episode - b.episode);
     if (!episodes.length) throw new Error('Нет пронумерованных серий');
+    return episodes;
+  }
+  async function importShow(raw,signal) {
+    const known = libraryShows().find(show => show.mazeId === raw.id ||
+      (raw.externals?.imdb && show.imdb?.id === raw.externals.imdb));
+    if (known) return known;
+    const episodes = await fetchEpisodes(raw.id,signal);
+    if (signal.aborted) throw signal.reason;
     const years = [raw.premiered?.slice(0,4),raw.ended?.slice(0,4)].filter(Boolean);
     const show = {
       id:'tvmaze-' + raw.id,mazeId:raw.id,title:raw.name,language:raw.language,years:[...new Set(years)].join('–'),
@@ -204,7 +239,7 @@ window.konfolyLibrary = (() => {
       imdb:/^tt\d+$/.test(raw.externals?.imdb || '') ? {id:raw.externals.imdb} : null,episodes
     };
     const next = [...imported,show];
-    localStorage.setItem(libraryKey,JSON.stringify(next));
+    show.sessionOnly = !persistImports(next);
     imported.push(show);
     shows.set(show.id,show);
     return show;
@@ -583,7 +618,7 @@ window.konfolyLibrary = (() => {
       tiles.append(tile);
     }
     section.append(sectionTitle,tiles);
-    const status = make('p','muted');
+    const status = make('p','muted',show.sessionOnly ? 'Сериал добавлен до закрытия вкладки. Браузер не сохранил каталог.' : '');
     status.setAttribute('role','status');
     function updateShowDetails() {
       renderTitle();
@@ -968,10 +1003,10 @@ window.konfolyLibrary = (() => {
             const kinopoiskId = seriesNativeId(show) || await seriesMetadata.kinopoiskId(show,controller.signal);
             if (!kinopoiskId) throw Error('Для этого сериала не найден ID каталога видео.');
             const voice = choice ?? saved.nativeVoice;
-            try { result = await resolveNative({...providerEpisode(show,item),kinopoiskId,voice,quality:preferences.quality},controller.signal); }
+            try { result = await resolveNative({...canonicalEpisode(show,item),kinopoiskId,voice,quality:preferences.quality},controller.signal); }
             catch (error) {
               if (choice || !voice || controller.signal.aborted) throw error;
-              result = await resolveNative({...providerEpisode(show,item),kinopoiskId,quality:preferences.quality},controller.signal);
+              result = await resolveNative({...canonicalEpisode(show,item),kinopoiskId,quality:preferences.quality},controller.signal);
             }
           } else if (id === 'endpoint') {
             result = await resolveEpisodeEndpoint(show,item,controller.signal,choice);
@@ -1204,9 +1239,9 @@ window.konfolyLibrary = (() => {
       delete root.dataset.series;
     } else {
       root.style.setProperty('--show-hue',String(showHue(show)));
-      root.style.setProperty('--show-chroma',show === mentalist ? '.15' : '.11');
+      root.style.setProperty('--show-chroma',String(show.chroma ?? .11));
       root.dataset.series = show.id;
-      if (show !== mentalist && show.hue == null && show.mazeId !== 44776 && /^https:\/\/static\.tvmaze\.com\//.test(show.image || '')) {
+      if (show !== mentalist && show.hue == null && !Number.isFinite(seriesIdentity(show)?.hue) && /^https:\/\/static\.tvmaze\.com\//.test(show.image || '')) {
         void posterHue(show.image).then(hue => {
           if (hue == null || root.dataset.series !== show.id) return;
           root.style.setProperty('--show-hue',String(hue));
@@ -1230,6 +1265,25 @@ window.konfolyLibrary = (() => {
     selectedShow = route.show;
     selectedEpisode = route.episode;
     selectedSeason = route.season;
+    if (route.loadEpisodes) {
+      const panel = $('series');
+      const loading = make('p','muted','Загружаем эпизоды…');
+      loading.setAttribute('role','status');
+      panel.replaceChildren(make('h1','page-title',seriesDisplayTitle(route.show)),loading);
+      const signal = metadataSession.signal;
+      void fetchEpisodes(route.show.mazeId,signal).then(episodes => {
+        if (signal.aborted) return;
+        route.show.episodes = episodes;
+        renderCurrentRoute();
+      }).catch(() => {
+        if (signal.aborted) return;
+        loading.textContent = 'Не удалось загрузить эпизоды.';
+        const retry = make('button','tonal','Повторить');
+        retry.onclick = renderCurrentRoute;
+        panel.append(retry);
+      });
+      return;
+    }
     if (route.episode) {
       selectedEpisodes.set(route.show.id,episodeKey(route.episode));
       renderEpisode(route.show,route.episode);
@@ -1238,4 +1292,6 @@ window.konfolyLibrary = (() => {
     else renderShow(route.show);
   }
   return {match,selectRoute,navigation,back,render,openActiveSources};
-})();
+}
+
+export {createSeriesLibrary};

@@ -54,3 +54,5 @@ const episodeTitlesRu = [
     'Белые орхидеи'
   ]
 ];
+
+export {episodeTitlesRu};

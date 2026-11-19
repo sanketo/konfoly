@@ -1,3 +1,8 @@
+import {episodeCatalog} from './episodes.js';
+import {externalRatingData} from './ratings-data.js';
+import {$, key, make, openSheet} from './dom.js';
+import {readLocal, writeLocal} from './storage.js';
+
 const showRatingKey = 'mentalist';
 
 function ratingText(score) {
@@ -112,3 +117,5 @@ function renderEpisodeRatings(episode) {
   $('episode-ratings').replaceChildren(...(badge ? [badge] : []));
   setPersonalRatingButton($('rate-episode'),episodeRatingTarget(episode));
 }
+
+export {showRatingKey, ratingText, seasonRating, ratingBadge, ratingSeasonLabel, episodeRatingTarget, setPersonalRatingButton, openPersonalRating, renderSeriesRatings, renderSeasonRatings, renderEpisodeRatings};

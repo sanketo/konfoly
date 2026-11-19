@@ -1,10 +1,15 @@
+import {readLocal, writeLocal} from './storage.js';
+import {mediaAddress} from './urls.js';
+import {canonicalEpisode, seriesIdentity} from './series-config.js';
+import {integrationSettings} from './integrations.js';
+import {seriesEditorial} from './series-data.js';
+import {localizedSeriesTitle} from './series-titles-ru.js';
+
 const seriesMetadata = (() => {
   const keyName = 'konfoly-kinopoisk-api-key';
   const tmdbKeyName = 'konfoly-tmdb-read-token';
   const maxAge = 14 * 86400000;
   const cached = new Map();
-  const knownIds = {116:412344,169:404900,184:818185};
-  const knownImdb = {tt1647423:501998};
   const languages = {English:'en',Japanese:'ja',Korean:'ko',French:'fr',German:'de',Spanish:'es',
     Italian:'it',Portuguese:'pt',Dutch:'nl',Turkish:'tr',Chinese:'zh',Hindi:'hi',Polish:'pl',Ukrainian:'uk',Russian:'ru'};
   const itemKey = item => item.season + ':' + item.episode;
@@ -176,7 +181,7 @@ const seriesMetadata = (() => {
     };
   }
   async function kinopoiskId(show,signal) {
-    const known = knownIds[show.mazeId] || knownImdb[show.imdb?.id] || read(show).kpId;
+    const known = seriesIdentity(show)?.kinopoiskId || read(show).kpId;
     if (known) return known;
     const metadata = await wikidata(show,signal);
     if (!signal.aborted && metadata.kpId) save(show,{...metadata,wikiCheckedAt:Date.now()});
@@ -248,7 +253,7 @@ const seriesMetadata = (() => {
     const data = read(show);
     const key = apiKey();
     const jobs = [];
-    const logoAddress = window.konfolyIntegrations?.logoEndpoint;
+    const logoAddress = integrationSettings.logoEndpoint;
     if (logoAddress && /^tt\d{5,12}$/.test(show.imdb?.id || '') && !fresh(data.operatorLogosCheckedAt)) {
       jobs.push((async () => {
         const address = mediaAddress(logoAddress,1,1);
@@ -349,8 +354,8 @@ const seriesMetadata = (() => {
     const data = read(show);
     const id = itemKey(item);
     let kpId = id;
-    if (show.mazeId === 3391 && show.id !== 'interns') {
-      try { kpId = itemKey(providerEpisode(show,item)); } catch { kpId = ''; }
+    if (seriesIdentity(show)?.seasonLengths) {
+      try { kpId = itemKey(canonicalEpisode(show,item)); } catch { kpId = ''; }
     }
     const kp = data.kp?.[kpId];
     const match = kp && (!kp.original || !item.title || /^Серия \d+$/.test(item.title) || normalize(kp.original) === normalize(item.title)) ? kp : null;
@@ -426,3 +431,5 @@ const seriesMetadata = (() => {
 
   return {searchTitles,russianSearch,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();
+
+export {seriesMetadata};

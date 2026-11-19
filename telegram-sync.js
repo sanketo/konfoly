@@ -83,3 +83,5 @@ function createTelegramSync(storage, {onMerge, onStatus}) {
 
   return {pull,queue,flush};
 }
+
+export {createTelegramSync};
