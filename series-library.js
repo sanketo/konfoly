@@ -24,7 +24,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   const isInterns = show => show.mazeId === interns.mazeId || show.imdb?.id === interns.imdb.id;
   const importedInterns = imported.find(isInterns);
   if (importedInterns) Object.assign(importedInterns,{
-    official:interns.official,tmdbId:interns.tmdbId,hue:interns.hue
+    official:interns.official,tmdbId:interns.tmdbId,hue:interns.hue,imdb:importedInterns.imdb || interns.imdb
   });
   const indexedShows = Object.entries(seriesEditorial).flatMap(([id,entry]) => {
     const {title,original,years,image,description,source,imdb,seasonCount,episodeCount} = entry;
@@ -284,7 +284,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (!preferredSeason && show.episodeCount && episodes.length < show.episodeCount) throw Error('Список эпизодов неполный.');
       return {episodes,partialSeason:preferredSeason};
     })());
-    const {episodes,poster,description,years,partialSeason} = await Promise.any(jobs.map(async job => {
+    const {episodes,poster,description,years,partialSeason,imdbScore} = await Promise.any(jobs.map(async job => {
       const result = await job;
       if (preferredSeason && !result.episodes.some(item => item.season === preferredSeason)) {
         throw Error('В источнике нет выбранного сезона.');
@@ -296,6 +296,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       show.image ||= poster;
       show.description ||= plainText(description);
       show.years ||= years;
+      if (imdbScore != null) seriesMetadata.rememberImdbRating(show,imdbScore);
       if (!partialSeason) rememberEpisodes(catalogKey(show),episodes);
     }
     return {episodes,partialSeason};
@@ -314,6 +315,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       source:raw.id ? 'https://www.tvmaze.com/shows/' + raw.id : '',
       imdb:validImdb(raw.externals?.imdb) ? {id:raw.externals.imdb} : null
     };
+    if (raw.imdbScore != null) seriesMetadata.rememberImdbRating(show,raw.imdbScore);
     const next = [...imported,show];
     show.sessionOnly = !persistImports(next);
     imported.push(show);
@@ -503,10 +505,18 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   function imdbLink(record,suffix='ratings/') {
     return 'https://www.imdb.com/title/' + record.id + '/' + suffix;
   }
+  function setPublicRating(row,record) {
+    const badge = Number.isFinite(record?.score) ? ratingBadge('IMDb',record,imdbLink(record,record.suffix)) :
+      record?.id ? external('IMDb ↗',imdbLink(record)) : null;
+    const current = row.querySelector('[data-public-rating]');
+    if (!badge) { current?.remove(); return; }
+    badge.dataset.publicRating = '';
+    if (!current) row.prepend(badge);
+    else if (current.textContent !== badge.textContent) current.replaceWith(badge);
+  }
   function ratings(show,record,id,label) {
     const row = make('div','rating-row');
-    if (Number.isFinite(record?.score)) row.append(ratingBadge('IMDb',record,imdbLink(record,record.suffix)));
-    else if (record?.id) row.append(external('IMDb ↗',imdbLink(record)));
+    setPublicRating(row,record);
     const rate = make('button','rating-action');
     setPersonalRatingButton(rate,{id,label:show.title + ' · ' + label},show.id);
     row.append(rate);
@@ -705,7 +715,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     heading.append(title,localizedWordmark);
     if (show.original || show.mazeId === 184) heading.append(make('p','show-title',show.original || show.title));
     heading.append(make('p','eyebrow hero-facts',[showYears(show),show.genre].filter(Boolean).join(' · ')));
-    const rating = ratings(show,show.imdb,'series','Сериал');
+    const rating = ratings(show,seriesMetadata.imdbRating(show),'series','Сериал');
     rating.classList.add('hero-ratings');
     const actions = make('div','hero-actions');
     const last = resume(show);
@@ -780,6 +790,9 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     updateSeasonTiles();
     $('series').replaceChildren(hero,section,status);
     hydrate(show,updateShowDetails,status);
+    if (!episodeStatus) void seriesMetadata.loadImdbRating(show,metadataSession.signal,() => {
+      setPublicRating(rating,seriesMetadata.imdbRating(show));
+    }).catch(() => {});
     void seriesMetadata.translateIfReady(show,null,metadataSession.signal,updateShowDetails);
     return updateSeasonTiles;
   }

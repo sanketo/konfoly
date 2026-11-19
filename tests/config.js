@@ -135,3 +135,19 @@ test('episode guide resolves an exact IMDb match when Wikidata Query Service fai
   const show = {id:'imdb-tt22222222',title:'Example',imdb:{id:'tt22222222'}};
   assert.equal(await seriesMetadata.wikiEpisodeArticle(show,new AbortController().signal),'Example (TV series)');
 });
+
+test('IMDb series rating is loaded without episodes, validated and cached by title ID', async (context) => {
+  const show = {id:'imdb-tt98989898',imdb:{id:'tt98989898'}};
+  const update = context.mock.fn();
+  const fetchMock = context.mock.method(globalThis,'fetch',async address => {
+    assert.equal(new URL(address).pathname,'/meta/series/tt98989898.json');
+    return Response.json({meta:{type:'series',id:show.imdb.id,imdbRating:'7.0'}});
+  });
+  const signal = new AbortController().signal;
+  await seriesMetadata.loadImdbRating(show,signal,update);
+  await seriesMetadata.loadImdbRating(show,signal,update);
+  assert.equal(seriesMetadata.imdbRating(show).score,7);
+  assert.equal(seriesMetadata.imdbRating({...show,imdb:{id:'tt56565656'}}).score,undefined);
+  assert.equal(update.mock.callCount(),1);
+  assert.equal(fetchMock.mock.callCount(),1);
+});

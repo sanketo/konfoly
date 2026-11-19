@@ -4,6 +4,7 @@ import {canonicalEpisode, seriesIdentity} from './series-config.js';
 import {integrationSettings} from './integrations.js';
 import {seriesEditorial} from './series-data.js';
 import {localizedSeriesTitle} from './series-titles-ru.js';
+import {imdbScore, loadCinemetaRating, validImdb} from './cinemeta.js';
 
 const seriesMetadata = (() => {
   const keyName = 'konfoly-kinopoisk-api-key';
@@ -97,6 +98,30 @@ const seriesMetadata = (() => {
   function save(show,values) {
     const data = Object.assign(read(show),values);
     writeLocal(storageKey(show),data);
+  }
+  function imdbRating(show) {
+    const record = show.imdb;
+    if (!validImdb(record?.id)) return record;
+    const curated = imdbScore(record.score);
+    if (curated != null) return {...record,score:curated};
+    const cached = read(show).imdbRating;
+    const score = cached?.id === record.id ? imdbScore(cached.score) : undefined;
+    return score == null ? record : {...record,score};
+  }
+  function rememberImdbRating(show,score) {
+    if (validImdb(show.imdb?.id)) {
+      save(show,{imdbRating:{id:show.imdb.id,score:imdbScore(score),checkedAt:Date.now()}});
+    }
+  }
+  async function loadImdbRating(show,signal,onChange) {
+    const id = show.imdb?.id;
+    if (!validImdb(id) || imdbScore(show.imdb.score) != null) return;
+    const cached = read(show).imdbRating;
+    if (cached?.id === id && fresh(cached.checkedAt)) return;
+    const score = await loadCinemetaRating(id,signal);
+    if (signal.aborted) return;
+    if (score != null || imdbRating(show)?.score == null) rememberImdbRating(show,score);
+    if (score != null) onChange();
   }
   function text(value,max=4000) {
     return typeof value === 'string' ? value.trim().slice(0,max) : '';
@@ -555,7 +580,7 @@ const seriesMetadata = (() => {
     } finally { translator.destroy(); }
   }
 
-  return {loadEpisodeTitles,searchTitles,catalogSearch,wikiEpisodeArticle,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {loadEpisodeTitles,searchTitles,catalogSearch,wikiEpisodeArticle,imdbRating,loadImdbRating,rememberImdbRating,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();
 
 export {seriesMetadata};
