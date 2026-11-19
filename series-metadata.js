@@ -99,7 +99,7 @@ const seriesMetadata = (() => {
     if (!address) return '';
     const {hostname} = new URL(address);
     return ['avatars.mds.yandex.net','avatars.yandex.net','st.kp.yandex.net','kinopoiskapiunofficial.tech',
-      'commons.wikimedia.org','upload.wikimedia.org'].includes(hostname) ? address : '';
+      'commons.wikimedia.org','upload.wikimedia.org','thumb.wikimedia.org'].includes(hostname) ? address : '';
   }
   const fresh = time => Date.now() - time < maxAge;
   async function json(url,options) {
@@ -111,6 +111,50 @@ const seriesMetadata = (() => {
   }
   function keyLookupOptions(signal,key) {
     return {signal,headers:{'X-API-KEY':key},redirect:'error'};
+  }
+  async function wikidataRows(query,signal) {
+    const url = new URL('https://query.wikidata.org/sparql');
+    url.searchParams.set('format','json');
+    url.searchParams.set('query',query);
+    const data = await json(url,{signal});
+    return data.results?.bindings || [];
+  }
+  async function searchTitles(shows,signal,onTitle) {
+    const missing = shows.filter(show => Number.isInteger(show.mazeId) &&
+      !/\p{Script=Cyrillic}/u.test(details(show).title)).slice(0,12);
+    if (!missing.length) return;
+    const labels = await wikidataRows('SELECT ?id ?name WHERE { VALUES ?id { ' +
+      missing.map(show => '"' + show.mazeId + '"').join(' ') +
+      ' } ?show wdt:P8600 ?id ; rdfs:label ?name . FILTER(LANG(?name) = "ru") }',signal);
+    if (signal.aborted) return;
+    const localized = new Map();
+    for (const row of labels) {
+      const title = text(row.name?.value,230);
+      if (!/\p{Script=Cyrillic}/u.test(title)) continue;
+      const id = Number(row.id?.value);
+      if (!localized.has(id)) localized.set(id,new Set());
+      localized.get(id).add(title);
+    }
+    for (const show of missing) {
+      const names = localized.get(show.mazeId);
+      if (names?.size !== 1) continue;
+      save(show,{searchRuTitle:[...names][0]});
+      onTitle(show);
+    }
+  }
+  async function russianSearch(query,signal) {
+    if (!/\p{Script=Cyrillic}/u.test(query)) return [];
+    const url = new URL('https://www.wikidata.org/w/api.php');
+    url.search = new URLSearchParams({action:'wbsearchentities',format:'json',origin:'*',search:query,
+      language:'ru',uselang:'ru',type:'item',limit:'12'});
+    const data = await json(url,{signal});
+    const items = (data.search || []).filter(item => /^Q\d+$/.test(item.id) && /\p{Script=Cyrillic}/u.test(item.label || ''));
+    if (!items.length) return [];
+    const rows = await wikidataRows('SELECT ?show ?id WHERE { VALUES ?show { ' +
+      items.map(item => 'wd:' + item.id).join(' ') + ' } ?show wdt:P8600 ?id . }',signal);
+    const ids = new Map(rows.map(row => [row.show?.value?.split('/').at(-1),Number(row.id?.value)]));
+    return items.map(item => ({id:ids.get(item.id),name:text(item.label,230)}))
+      .filter(item => Number.isInteger(item.id)).slice(0,4);
   }
   async function wikidata(show,signal) {
     const imdb = show.imdb?.id;
@@ -166,6 +210,21 @@ const seriesMetadata = (() => {
     if (!entry?.extract || entry.missing) return {};
     return {wikiDescription:text(entry.extract,800),
       wikiSource:'https://ru.wikipedia.org/wiki/' + encodeURIComponent(entry.title.replaceAll(' ','_'))};
+  }
+  async function commonsThumbnails(addresses,signal) {
+    const files = addresses.flatMap(address => {
+      try {
+        const url = new URL(address);
+        const match = /^\/wiki\/Special:FilePath\/(.+)$/i.exec(url.pathname);
+        return url.hostname === 'commons.wikimedia.org' && match ? ['File:' + decodeURIComponent(match[1])] : [];
+      } catch { return []; }
+    });
+    if (!files.length) return [];
+    const query = new URL('https://commons.wikimedia.org/w/api.php');
+    query.search = new URLSearchParams({action:'query',format:'json',formatversion:'2',origin:'*',
+      prop:'imageinfo',iiprop:'url',iiurlwidth:'500',titles:files.join('|')});
+    const result = await json(query,{signal});
+    return (result.query?.pages || []).map(file => image(file.imageinfo?.[0]?.thumburl || file.imageinfo?.[0]?.url)).filter(Boolean);
   }
   async function articleLogos(show,title,language,signal) {
     if (!title) return [];
@@ -227,19 +286,23 @@ const seriesMetadata = (() => {
         onChange();
       })());
     }
-    if (!fresh(data.wikiCheckedAt) || !Object.hasOwn(data,'commonsLogos')) {
+    if (!fresh(data.wikiCheckedAt) || !fresh(data.wikiArtCheckedAt)) {
       jobs.push((async () => {
         const wiki = await wikidata(show,signal);
         if (signal.aborted) return;
         save(show,{...wiki,wikiCheckedAt:Date.now()});
         onChange();
         const logoJob = Promise.allSettled([
+          commonsThumbnails(wiki.commonsLogos || [],signal),
           articleLogos(show,wiki.wikiTitle,'ru',signal),
           articleLogos(show,wiki.enWikiTitle,'en',signal)
         ]).then(outcomes => {
           if (signal.aborted) return;
           const logos = outcomes.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-          if (logos.length) { save(show,{wikiLogos:logos}); onChange(); }
+          if (outcomes.some(result => result.status === 'fulfilled')) {
+            save(show,{wikiLogos:logos,wikiArtCheckedAt:Date.now()});
+            if (logos.length) onChange();
+          }
         });
         if (wiki.wikiTitle && !/\p{Script=Cyrillic}/u.test(show.description || '')) {
           const intro = await wikiIntro(wiki.wikiTitle,signal);
@@ -291,22 +354,25 @@ const seriesMetadata = (() => {
     }
     const kp = data.kp?.[kpId];
     const match = kp && (!kp.original || !item.title || /^Серия \d+$/.test(item.title) || normalize(kp.original) === normalize(item.title)) ? kp : null;
+    const official = typeof seriesEditorial === 'undefined' ? null : seriesEditorial[show.mazeId]?.episodes?.[id];
     const localTitle = localizedSeriesTitle(show,item);
     return {
-      title:match?.title || (localTitle !== item.title ? localTitle : '') || data.translated?.[id]?.title || item.title,
-      description:match?.description || data.translated?.[id]?.description || data.maze?.[id] || item.synopsis || '',
-      source:match?.description ? 'Кинопоиск' : data.translated?.[id]?.description ? 'Машинный перевод · TVmaze' : 'TVmaze',
-      translated:!!(match?.title || localTitle !== item.title || data.translated?.[id]?.title)
+      title:match?.title || official?.title || (localTitle !== item.title ? localTitle : '') || data.translated?.[id]?.title || item.title,
+      description:match?.description || official?.description || data.translated?.[id]?.description || data.maze?.[id] || item.synopsis || '',
+      source:match?.description ? 'Кинопоиск' : official?.description ? official.source : data.translated?.[id]?.description ? 'Машинный перевод · TVmaze' : 'TVmaze',
+      translated:!!(match?.title || official?.title || localTitle !== item.title || data.translated?.[id]?.title)
     };
   }
 
   function details(show) {
     const data = read(show);
+    const editorial = typeof seriesEditorial === 'undefined' ? null : seriesEditorial[show.mazeId];
     const description = data.kpDescription ? {text:data.kpDescription,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'} :
+      editorial?.description ? {text:editorial.description,source:editorial.source,label:editorial.label} :
       /\p{Script=Cyrillic}/u.test(show.description || '') ? {text:show.description} :
       data.wikiDescription ? {text:data.wikiDescription,source:data.wikiSource,label:'Википедия'} :
       data.translatedShow?.description ? {text:data.translatedShow.description,label:'Машинный перевод'} : {text:show.description || ''};
-    return {title:data.kpTitle || data.ruTitle || data.translatedShow?.title || show.title,description};
+    return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,description};
   }
   async function translateShow(show,signal,onChange) {
     const original = details(show);
@@ -326,6 +392,15 @@ const seriesMetadata = (() => {
   function canTranslate(show) {
     return typeof globalThis.Translator?.create === 'function' && show.language !== 'Russian';
   }
+  async function translateIfReady(show,items,signal,onChange) {
+    if (!canTranslate(show) || typeof globalThis.Translator.availability !== 'function') return;
+    const options = {sourceLanguage:languages[show.language] || 'en',targetLanguage:'ru'};
+    try {
+      if (await globalThis.Translator.availability(options) !== 'available' || signal.aborted) return;
+      if (items?.length) await translate(show,items,signal,onChange);
+      else await translateShow(show,signal,onChange);
+    } catch {}
+  }
   async function translate(show,items,signal,onChange) {
     const sourceLanguage = languages[show.language] || 'en';
     const translator = await globalThis.Translator.create({sourceLanguage,targetLanguage:'ru',signal});
@@ -339,7 +414,7 @@ const seriesMetadata = (() => {
         const next = {...translated[id]};
         if (!info.translated && item.title) next.title = text(await translator.translate(item.title,{signal}),300);
         const summary = data.maze?.[id] || item.synopsis;
-        if (summary && info.source === 'TVmaze') next.description = text(await translator.translate(summary,{signal}));
+        if (summary && info.source === 'TVmaze' && !/\p{Script=Cyrillic}/u.test(summary)) next.description = text(await translator.translate(summary,{signal}));
         if (next.title || next.description) translated[id] = next;
       }
       if (!signal.aborted) {
@@ -349,5 +424,5 @@ const seriesMetadata = (() => {
     } finally { translator.destroy(); }
   }
 
-  return {apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {searchTitles,russianSearch,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();

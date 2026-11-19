@@ -99,3 +99,21 @@ const interns = {
     season:index+1,episode:number+1,title:'Серия ' + (number+1)
   })))
 };
+
+const seriesEditorial = {
+  555:{
+    title:'Аватар: Легенда об Аанге',years:'2005–2008',logo:'assets/avatar-airbender-logo.svg',
+    description:'Катара и Сокка находят во льдах Аанга, последнего мага воздуха. Он оказывается Аватаром и должен овладеть всеми четырьмя стихиями, чтобы остановить Народ Огня и вернуть миру равновесие.',
+    source:'https://paramountglobalcontent.com/title/avatar-the-last-airbender',label:'Paramount'
+  },
+  38753:{title:'Аватар: Легенда об Аанге'},
+  83073:{title:'Аватар: Семь убежищ'},
+  44776:{title:'Фонари',logo:'assets/lanterns-logo.png'},
+  164:{title:'Банши',episodes:{
+    '1:1':{
+      title:'Пилот',
+      description:'Выйдя из тюрьмы, профессиональный вор скрывается от мафии и выдаёт себя за Лукаса Худа, нового шерифа городка Банши. Там он ищет Кэрри, свою бывшую возлюбленную и сообщницу. Пока он ждёт поддельные документы, сойти за местного ему помогает бывший боксёр и бармен Шугар Бейтс.',
+      source:'Cinemax / HBO Max'
+    }
+  }}
+};

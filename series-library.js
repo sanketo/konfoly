@@ -80,7 +80,7 @@ window.konfolyLibrary = (() => {
     const boot = !hash || hash.startsWith('tgWebApp');
     const deepLink = boot && /^series-([a-z0-9-]+)-s(\d+)e(\d+)$/.exec(start || '');
     if (deepLink) hash = 'series/' + deepLink.slice(1).join('/');
-    else if ((boot && !start) || hash === 'library') return {page:'library'};
+    else if ((boot && !start) || hash === 'library' || hash === 'library/search') return {page:'library',focusSearch:hash === 'library/search'};
     const parts = /^series\/([a-z0-9-]+)(?:\/season\/(all|\d+)|\/(\d+)\/(\d+))?$/.exec(hash);
     const show = parts && shows.get(parts[1]);
     if (!show || show === mentalist) return parts ? {page:'library'} : null;
@@ -145,10 +145,11 @@ window.konfolyLibrary = (() => {
     if (page === 'home') return '#library';
     return null;
   }
+  function showYears(show) { return seriesEditorial[show.mazeId]?.years || show.years; }
   function caption(show,includeYears=true) {
     const count = show.episodes?.length || 151;
     const seasons = show.episodes ? new Set(show.episodes.map(item => item.season)).size : 7;
-    return [includeYears && show.years,'Сезонов ' + seasons,'Серий ' + count].filter(Boolean).join(' · ');
+    return [includeYears && showYears(show),'Сезонов ' + seasons,'Серий ' + count].filter(Boolean).join(' · ');
   }
   function showHue(show) {
     if (show === mentalist) return 22;
@@ -163,8 +164,10 @@ window.konfolyLibrary = (() => {
       tile.onclick = () => add(tile);
     }
     const copy = make('span','library-tile-copy');
-    const facts = show.preview ? show.years : caption(show);
-    copy.append(make('strong',null,seriesDisplayTitle(show)));
+    const facts = show.preview ? showYears(show) : caption(show);
+    const name = seriesDisplayTitle(show);
+    copy.append(make('strong',null,name));
+    if (show.preview && name !== show.title) copy.append(make('span','library-tile-original',show.title));
     if (facts) copy.append(make('span','muted',facts));
     if (add) copy.append(make('span','library-tile-action','Добавить в каталог'));
     tile.style.setProperty('--tile-hue',showHue(show));
@@ -206,7 +209,7 @@ window.konfolyLibrary = (() => {
     shows.set(show.id,show);
     return show;
   }
-  function renderLibrary() {
+  function renderLibrary(focusSearch) {
     const grid = $('library-grid');
     for (const card of grid.querySelectorAll('[data-imported]')) card.remove();
     const pinned = readLocal(pinnedKey);
@@ -233,6 +236,7 @@ window.konfolyLibrary = (() => {
     status.textContent = '';
     results.replaceChildren();
     submit.disabled = false;
+    if (focusSearch) input.focus({preventScroll:true});
     const session = new AbortController();
     let operation;
     function requestSignal() {
@@ -259,31 +263,84 @@ window.konfolyLibrary = (() => {
       const normalized = query.toLocaleLowerCase('ru');
       const local = libraryShows().filter(show =>
         [seriesDisplayTitle(show),show.title,show.original].some(title => title?.toLocaleLowerCase('ru').includes(normalized)));
-      results.append(...local.map(searchCard));
-      status.textContent = 'Ищем в TVmaze…';
+      const cards = new Map(local.map(show => [show.id,searchCard(show)]));
+      results.append(...cards.values());
+      status.textContent = 'Ищем сериалы…';
       void run(async signal => {
-        const matches = await tvmaze('search/shows?q=' + encodeURIComponent(query),signal);
-        if (signal.aborted) return;
         const seen = new Set(local.map(show => show.id));
-        for (const {show} of matches.slice(0,12)) {
+        const previews = [...local];
+        function addResult(show,localized) {
           const known = libraryShows().find(item => item.mazeId === show.id ||
             (show.externals?.imdb && item.imdb?.id === show.externals.imdb));
           const id = known?.id || 'tvmaze-' + show.id;
-          if (seen.has(id)) continue;
+          const preview = known || {id,title:show.name,years:show.premiered?.slice(0,4),
+            language:show.language,image:mazeImage(show.image),mazeId:show.id,preview:true};
+          if (localized) seriesMetadata.rememberSearchTitle(preview,localized);
+          if (seen.has(id)) { if (localized) updateTitle(preview); return; }
           seen.add(id);
-          if (known) { results.append(searchCard(known)); continue; }
-          const preview = {id,title:show.name,years:show.premiered?.slice(0,4),
-            image:mazeImage(show.image),mazeId:show.id,preview:true};
-          results.append(showCard(preview,button => {
+          previews.push(preview);
+          if (known) {
+            const card = searchCard(known);
+            cards.set(id,card);
+            results.append(card);
+            return;
+          }
+          const card = showCard(preview,button => {
             button.disabled = true;
             status.textContent = 'Загружаем эпизоды…';
             void run(async signal => {
               const added = await importShow(show,signal);
               if (!signal.aborted) location.hash = showPath(added);
             },'Не удалось добавить сериал. Проверь соединение и повтори попытку.').finally(() => { button.disabled = false; });
-          }));
+          });
+          cards.set(id,card);
+          results.append(card);
         }
-        status.textContent = seen.size ? 'Результаты поиска' : 'Ничего не найдено. Попробуй оригинальное название.';
+        function updateTitle(show) {
+          const card = cards.get(show.id);
+          if (!card) return;
+          const title = card.querySelector('strong');
+          const name = seriesDisplayTitle(show);
+          title.textContent = name;
+          if (name !== show.title && !card.querySelector('.library-tile-original')) {
+            title.after(make('span','library-tile-original',show.title));
+          }
+        }
+        const russian = seriesMetadata.russianSearch(query,signal).catch(() => []);
+        const matches = await tvmaze('search/shows?q=' + encodeURIComponent(query),signal).catch(() => []);
+        if (signal.aborted) return;
+        const normalizedTitle = title => title.toLocaleLowerCase('ru').replaceAll('ё','е');
+        const queryText = normalizedTitle(query);
+        const direct = matches.filter(({show}) => normalizedTitle(seriesDisplayTitle({
+          id:'tvmaze-' + show.id,mazeId:show.id,title:show.name
+        })).includes(queryText));
+        const selected = [...direct,...matches.filter(match => !direct.includes(match))];
+        for (const {show} of selected.slice(0,12)) addResult(show);
+        if (seen.size) status.textContent = 'Результаты поиска';
+        const localize = seriesMetadata.searchTitles(previews,signal,updateTitle).catch(() => {});
+        const wikidata = await russian;
+        await Promise.allSettled(wikidata.map(async entry => {
+          const listed = matches.find(({show}) => show.id === entry.id)?.show;
+          const show = listed || await tvmaze('shows/' + entry.id,signal);
+          if (signal.aborted) return;
+          addResult(show,entry.name);
+          const preview = previews.find(item => item.mazeId === entry.id);
+          if (preview) updateTitle(preview);
+        }));
+        await localize;
+        if (signal.aborted) return;
+        const missing = previews.filter(show => !/\p{Script=Cyrillic}/u.test(seriesDisplayTitle(show))).slice(0,6);
+        void Promise.allSettled(missing.map(async show => {
+          const names = await tvmaze('shows/' + show.mazeId + '/akas',signal);
+          const russian = names.filter(item => /\p{Script=Cyrillic}/u.test(item.name || ''));
+          const alias = russian.find(item => item.country?.code === 'RU') ||
+            russian.find(item => item.country == null);
+          if (!signal.aborted && alias) {
+            seriesMetadata.rememberSearchTitle(show,alias.name);
+            updateTitle(show);
+          }
+        }));
+        status.textContent = seen.size ? 'Результаты поиска' : 'Сериал не найден';
       },local.length ? 'Показаны совпадения из каталога. TVmaze сейчас недоступен.' : 'TVmaze сейчас недоступен. Попробуй ещё раз.');
     };
     cleanup = () => { session.abort(); operation?.abort(); };
@@ -413,7 +470,9 @@ window.konfolyLibrary = (() => {
       if (text.description) {
         const synopsis = make('details');
         synopsis.open = synopsisOpen ?? preferences.spoilers;
-        synopsis.append(make('summary',null,'Описание от источника · возможны спойлеры'),make('p',null,text.description),
+        const russian = /\p{Script=Cyrillic}/u.test(text.description);
+        if (!russian && synopsisOpen == null) synopsis.open = false;
+        synopsis.append(make('summary',null,russian ? 'Описание от источника · возможны спойлеры' : 'Описание на языке оригинала'),make('p',null,text.description),
           make('p','muted',text.source));
         content.append(synopsis);
       } else if (!info.description) content.append(make('p','muted','Описание этой серии отсутствует.'));
@@ -433,6 +492,9 @@ window.konfolyLibrary = (() => {
     };
     $('series').append(dialog);
     dialog.showModal();
+    void seriesMetadata.translateIfReady(show,[item],metadataSession.signal,() => {
+      if (dialog.open) { renderDetails(); update(); }
+    });
   }
   function renderShow(show) {
     const hero = make('div','hero');
@@ -445,11 +507,13 @@ window.konfolyLibrary = (() => {
       const data = seriesMetadata.read(show);
       const name = seriesDisplayTitle(show);
       if (!title.firstElementChild) title.textContent = name;
+      localizedWordmark.hidden = !title.firstElementChild || !/\p{Script=Cyrillic}/u.test(name);
+      localizedWordmark.textContent = name;
       const tmdbLogos = Array.isArray(data.tmdbLogos) ? data.tmdbLogos : [];
       const commons = Array.isArray(data.commonsLogos) ? data.commonsLogos : [];
       const wiki = Array.isArray(data.wikiLogos) ? data.wikiLogos : [];
       const operator = Array.isArray(data.operatorLogos) ? data.operatorLogos : [];
-      const addresses = [...new Set([show.logo,...operator,data.kpLogo,...tmdbLogos,...commons,data.commonsLogo,...wiki]
+      const addresses = [...new Set([seriesEditorial[show.mazeId]?.logo,show.logo,...operator,data.kpLogo,...tmdbLogos,...wiki,...commons,data.commonsLogo]
         .filter(address => typeof address === 'string' && address))];
       const checks = addresses.map(address => seriesMetadata.transparentLogo(address));
       for (const [index,address] of addresses.entries()) {
@@ -466,17 +530,19 @@ window.konfolyLibrary = (() => {
         logo.height = 220;
         title.className = 'show-wordmark show-wordmark-stacked';
         title.replaceChildren(logo);
+        localizedWordmark.hidden = !/\p{Script=Cyrillic}/u.test(name);
         return;
       }
       if (revision === titleRevision) {
         title.className = 'page-title';
         title.textContent = name;
+        localizedWordmark.hidden = true;
       }
     }
-    renderTitle();
-    heading.append(title);
+    const localizedWordmark = make('p','hero-russian-title');
+    heading.append(title,localizedWordmark);
     if (show.original || show.mazeId === 184) heading.append(make('p','show-title',show.original || show.title));
-    heading.append(make('p','eyebrow hero-facts',[show.years,show.genre].filter(Boolean).join(' · ')));
+    heading.append(make('p','eyebrow hero-facts',[showYears(show),show.genre].filter(Boolean).join(' · ')));
     const rating = ratings(show,show.imdb,'series','Сериал');
     rating.classList.add('hero-ratings');
     const actions = make('div','hero-actions');
@@ -487,7 +553,10 @@ window.konfolyLibrary = (() => {
     copy.append(heading,rating);
     const synopsis = make('p','synopsis');
     const attribution = make('p','muted synopsis-source');
-    copy.append(synopsis,attribution);
+    const originalSynopsis = make('details','synopsis-original');
+    const originalText = make('p','muted');
+    originalSynopsis.append(make('summary',null,'Описание на языке оригинала'),originalText);
+    copy.append(synopsis,attribution,originalSynopsis);
     copy.append(actions,make('p','muted hero-resume',last ? formatEpisode(last) + ' · ' + playbackTime(last.time) : caption(show,false)));
     const artwork = make('div','hero-poster');
     if (show.image) {
@@ -519,8 +588,11 @@ window.konfolyLibrary = (() => {
     function updateShowDetails() {
       renderTitle();
       const details = seriesMetadata.details(show);
-      synopsis.textContent = details.description.text;
+      const hasOriginal = !!details.description.text && !/\p{Script=Cyrillic}/u.test(details.description.text);
+      synopsis.textContent = hasOriginal ? '' : details.description.text;
       synopsis.hidden = !synopsis.textContent;
+      originalSynopsis.hidden = !hasOriginal;
+      originalText.textContent = hasOriginal ? details.description.text : '';
       attribution.replaceChildren();
       if (details.description.source) attribution.append(external(details.description.label,details.description.source));
       else if (details.description.label) attribution.textContent = details.description.label;
@@ -540,6 +612,7 @@ window.konfolyLibrary = (() => {
     updateShowDetails();
     $('series').replaceChildren(hero,section,status);
     hydrate(show,updateShowDetails,status);
+    void seriesMetadata.translateIfReady(show,null,metadataSession.signal,updateShowDetails);
   }
   function seasonsFor(show) {
     return [...new Set(show.episodes.map(item => item.season))];
@@ -1046,8 +1119,11 @@ window.konfolyLibrary = (() => {
       original.hidden = metadata.title === item.title;
       textBlock.textContent = info.description || '';
       textBlock.hidden = !info.description;
-      if (plot.hidden && metadata.description) plot.open = preferences.spoilers;
+      const russian = /\p{Script=Cyrillic}/u.test(metadata.description);
+      if (russian !== plot.classList.contains('localized-plot') || plot.hidden) plot.open = russian && preferences.spoilers;
+      plot.classList.toggle('localized-plot',russian);
       plot.hidden = !metadata.description;
+      plot.querySelector('summary').firstChild.textContent = russian ? 'Сюжет и развязка ' : 'Описание на языке оригинала ';
       plotContent.replaceChildren();
       if (metadata.description) plotContent.append(make('p',null,metadata.description),make('p','muted',metadata.source));
       const marked = !preferences.hideImportance && ['key','important'].includes(info.importance);
@@ -1067,6 +1143,7 @@ window.konfolyLibrary = (() => {
       renderStreamChoices(preflight,'Озвучка',items,selected,value => { preselectedVoice = value; },true);
     });
     hydrate(show,updateMetadata,metadataStatus);
+    void seriesMetadata.translateIfReady(show,[item],metadataSession.signal,updateMetadata);
     if (openSourcesFor === watchPath(show,item)) {
       openSourcesFor = null;
       showSources();
@@ -1148,7 +1225,7 @@ window.konfolyLibrary = (() => {
     cleanup?.();
     cleanup = undefined;
     if (route.page === 'settings') settings();
-    if (route.page === 'library') renderLibrary();
+    if (route.page === 'library') renderLibrary(route.focusSearch);
     if (!route.show) return;
     selectedShow = route.show;
     selectedEpisode = route.episode;

@@ -488,3 +488,17 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 .library-add-panel { margin-top:16px; }
 .library-grid[hidden] + .library-add-panel { margin-top:0; }
 #integration-settings:empty { display:none }
+
+.top-tools{display:flex;align-items:center;gap:8px}
+.header-search{color:var(--muted)}
+#library .library-add-panel{margin:0 0 20px}
+.library-tile-original{font-size:.82rem;color:var(--muted)}
+.hero-russian-title{font-weight:650;margin-block:6px 2px}
+.hero .synopsis-original{margin-top:12px}
+.hero .synopsis-original summary{width:fit-content;cursor:pointer;color:var(--muted)}
+.hero .synopsis-original p{margin-top:6px}
+:root:not([data-theme=light]) .show-wordmark img[src*="avatar-airbender"]{filter:drop-shadow(0 0 1px #fff)}
+:root[data-theme=light] .show-wordmark img[src*="lanterns-logo"]{filter:brightness(.42)}
+
+@media(max-width:360px){.header-search{padding-inline:9px;font-size:.875rem}.top-tools{gap:2px}}
+@media(max-width:250px){.top{gap:4px}.brand{gap:5px;font-size:.95rem}.brand span{width:34px;height:34px}.brand img{width:25px;height:26px}#theme-toggle{width:41px}}
