@@ -4,6 +4,7 @@ import {canonicalEpisode,combinedEpisodeRule,mentalistCatalog,seriesIdentity} fr
 import {readLocal,writeLocal} from '../storage.js';
 import {integrationOrigins,integrationSettings,matchesIntegrationOrigin} from '../integrations.js';
 import {seriesMetadata} from '../series-metadata.js';
+import {cachedEpisodes,rememberEpisodes} from '../catalog-episodes.js';
 
 test('imported Interns and the four-season edition map only on provider lookup', () => {
   const item = {season:4,episode:1,title:'Серия 61'};
@@ -66,4 +67,35 @@ test('episode localization matches exact external IDs and skips ambiguous labels
   assert.equal(seriesMetadata.episode(show,first).title,'Сигнал');
   assert.equal(seriesMetadata.episode(show,second).title,'The Answer');
   assert.equal(refresh.mock.callCount(),1);
+});
+
+test('catalog uses shippable episode data and bounds the cache for other series', (context) => {
+  const saved = new Map();
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
+    getItem:key => saved.get(key),setItem:(key,value) => saved.set(key,value)
+  }});
+  context.after(() => { delete globalThis.localStorage; });
+  const episodes = cachedEpisodes(38753).episodes;
+  assert.equal(episodes.filter(item => item.season === 1).length,8);
+  assert.equal(episodes.filter(item => item.season === 2).length,7);
+  assert.equal(cachedEpisodes(184).episodes.length,76);
+  for (let id=100;id<110;id++) rememberEpisodes(id,[{season:1,episode:1,title:'Pilot',synopsis:'Large synopsis'}]);
+  assert.equal(cachedEpisodes(109).episodes[0].title,'Pilot');
+  assert.equal(cachedEpisodes(109).episodes[0].synopsis,undefined);
+  assert.equal(Object.keys(JSON.parse(saved.get('konfoly-episode-lists-v1'))).length,8);
+});
+
+test('secondary catalog searches English and accepts only entries with a TVmaze show ID', async (context) => {
+  const claim = value => [{rank:'normal',mainsnak:{datavalue:{value}}}];
+  context.mock.method(globalThis,'fetch',async url => {
+    assert.equal(url.hostname,'www.wikidata.org');
+    if (url.searchParams.get('action') === 'wbsearchentities') {
+      assert.equal(url.searchParams.get('language'),'en');
+      return Response.json({search:[{id:'Q1',label:'Example'},{id:'Q2',label:'Other'}]});
+    }
+    return Response.json({entities:{Q1:{claims:{P8600:claim('38201'),P345:claim('tt1029384')},
+      labels:{en:{value:'Example'},ru:{value:'Пример'}}},Q2:{claims:{P345:claim('tt1999999')}}}});
+  });
+  const matches = await seriesMetadata.catalogSearch('example',new AbortController().signal);
+  assert.deepEqual(matches,[{id:38201,name:'Example',localized:'Пример',externals:{imdb:'tt1029384'}}]);
 });

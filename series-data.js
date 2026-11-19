@@ -108,9 +108,16 @@ const seriesEditorial = {
     description:'Катара и Сокка находят во льдах Аанга, последнего мага воздуха. Он оказывается Аватаром и должен овладеть всеми четырьмя стихиями, чтобы остановить Народ Огня и вернуть миру равновесие.',
     source:'https://paramountglobalcontent.com/title/avatar-the-last-airbender',label:'Paramount'
   },
-  38753:{title:'Аватар: Легенда об Аанге',original:'Avatar: The Last Airbender',years:'2024'},
+  38753:{title:'Аватар: Легенда об Аанге',original:'Avatar: The Last Airbender',years:'2024',seasonCount:2,episodeCount:15,
+    image:'assets/avatar-2024-poster.webp',imdb:{id:'tt9018736'},
+    description:'Аанг узнаёт, что он Аватар и может овладеть всеми четырьмя стихиями. Вместе с Катарой и Соккой он отправляется в путь, чтобы остановить войну, начатую Народом Огня.',
+    source:'https://www.netflix.com/title/80237957',label:'Netflix'},
   83073:{title:'Аватар: Семь убежищ',original:'Avatar: Seven Havens',years:'2026'},
   44776:{title:'Фонари',original:'Lanterns',years:'2026',logo:'assets/lanterns-logo.png'},
+  184:{title:'Конь БоДжек',original:'BoJack Horseman',years:'2014–2020',seasonCount:6,episodeCount:76,
+    image:'assets/bojack-poster.webp',imdb:{id:'tt3398228'},
+    description:'БоДжек, звезда ситкома девяностых, пытается вернуться на экран и берётся за мемуары. Работая над книгой, он сталкивается с последствиями решений, которые годами откладывал.',
+    source:'https://www.netflix.com/title/70300800',label:'Netflix'},
   2178:{title:'Охотники',original:'Hunters',years:'2016',seasonCount:1,episodeCount:13,episodes:Object.fromEntries([
     'Начало и конец','Послания','Орлеанская дева','Любовь и насилие',
     'Её тело в моей душе','Солдат из бункера','Поцелуй машины','Чем чаще я тебя вижу',

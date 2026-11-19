@@ -1,5 +1,6 @@
 import {canonicalEpisode, mentalistCatalog, seriesIdentity} from './series-config.js';
 import {breakingBad, interns, seriesEditorial} from './series-data.js';
+import {cachedEpisodes,rememberEpisodes} from './catalog-episodes.js';
 import {seriesMetadata} from './series-metadata.js';
 import {readLocal, writeLocal} from './storage.js';
 import {$, make} from './dom.js';
@@ -23,10 +24,15 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   if (importedInterns) Object.assign(importedInterns,{
     official:interns.official,tmdbId:interns.tmdbId,hue:interns.hue
   });
-  const indexedShows = Object.entries(seriesEditorial).map(([id,entry]) => {
+  const indexedShows = Object.entries(seriesEditorial).flatMap(([id,entry]) => {
     const {title,original,years,image,description,source,imdb,seasonCount,episodeCount} = entry;
-    return {id:'tvmaze-' + id,mazeId:Number(id),title,original,years,image,description,source,imdb,seasonCount,episodeCount};
-  }).filter(show => !imported.some(item => item.mazeId === show.mazeId));
+    const show = {id:'tvmaze-' + id,mazeId:Number(id),title,original,years,image,description,source,imdb,seasonCount,episodeCount};
+    const existing = imported.find(item => item.mazeId === show.mazeId);
+    if (!existing) return [show];
+    for (const [key,value] of Object.entries(show)) if (value != null && !existing[key]) existing[key] = value;
+    if (image?.startsWith('assets/')) existing.image = image;
+    return [];
+  });
   const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show)),...indexedShows];
   const shows = new Map([mentalist,breakingBad,interns,...indexedShows,...imported].map(show => [show.id,show]));
   const showPath = show => show === mentalist ? '#home' : '#series/' + show.id;
@@ -50,6 +56,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   let cleanup;
   let metadataSession;
   let episodeDetails;
+  const refreshEpisodeLists = new WeakSet();
 
   function compactImport(show) {
     const {id,mazeId,title,language,years,image,description,source,imdb} = show;
@@ -112,6 +119,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const parts = /^series\/([a-z0-9-]+)(?:\/season\/(all|\d+)|\/(\d+)\/(\d+))?$/.exec(hash);
     const show = parts && shows.get(parts[1]);
     if (!show || show === mentalist) return parts ? {page:'library'} : null;
+    if (!show.episodes) {
+      const cached = cachedEpisodes(show.mazeId);
+      if (cached.episodes) {
+        show.episodes = cached.episodes;
+        if (Date.now() - cached.savedAt > 86400000) refreshEpisodeLists.add(show);
+      }
+    }
     if (!Array.isArray(show.episodes)) return {page:'series',show,loadEpisodes:true,overview:!parts[2] && !parts[3]};
     if (parts[2] === 'all') return {page:'series',show,season:0};
     const season = Number(parts[2]);
@@ -228,6 +242,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       .map(item => ({season:item.season,episode:item.number,title:item.name,mazeId:item.id,airdate:item.airdate,image:mazeImage(item.image),runtime:item.runtime,synopsis:seriesMetadata.plain(item.summary)}))
       .sort((a,b) => a.season - b.season || a.episode - b.episode);
     if (!episodes.length) throw new Error('Нет пронумерованных серий');
+    if (!signal.aborted) rememberEpisodes(mazeId,episodes);
     return episodes;
   }
   async function importShow(raw,signal) {
@@ -310,6 +325,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       void run(async signal => {
         const seen = new Set(local.map(show => show.id));
         const previews = [...local];
+        const rawMatches = new Map();
         function addResult(show,localized) {
           const known = libraryShows().find(item => item.mazeId === show.id ||
             (show.externals?.imdb && item.imdb?.id === show.externals.imdb));
@@ -317,6 +333,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           const preview = known || {id,title:show.name,years:show.premiered?.slice(0,4),
             language:show.language,image:mazeImage(show.image),mazeId:show.id,preview:true};
           if (localized) seriesMetadata.rememberSearchTitle(preview,localized);
+          const previous = rawMatches.get(id);
+          if (!previous || Object.hasOwn(show,'premiered')) rawMatches.set(id,show);
           if (indexedShows.includes(known)) {
             const image = mazeImage(show.image);
             const cardPoster = cards.get(id)?.querySelector('.library-poster');
@@ -327,7 +345,20 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             if (!known.imdb && /^tt\d+$/.test(show.externals?.imdb || '')) known.imdb = {id:show.externals.imdb};
             if (imageChanged && cardPoster && !cardPoster.firstElementChild) cardPoster.replaceWith(poster(known));
           }
-          if (seen.has(id)) { if (localized) updateTitle(preview); return; }
+          if (seen.has(id)) {
+            if (!known && previous && rawMatches.get(id) === show) {
+              const current = previews.find(item => item.id === id);
+              Object.assign(current,preview);
+              const card = cards.get(id);
+              if (preview.image) card.querySelector('.library-poster')?.replaceWith(poster(preview));
+              const copy = card.querySelector('.library-tile-copy');
+              const facts = copy?.querySelector('.muted');
+              if (facts) facts.textContent = preview.years || '';
+              else if (preview.years) copy?.querySelector('.library-tile-action')?.before(make('span','muted',preview.years));
+            }
+            updateTitle(preview);
+            return;
+          }
           seen.add(id);
           previews.push(preview);
           if (known) {
@@ -340,7 +371,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             button.disabled = true;
             status.textContent = 'Загружаем эпизоды…';
             void run(async signal => {
-              const added = await importShow(show,signal);
+              const added = await importShow(rawMatches.get(id),signal);
               if (!signal.aborted) location.hash = showPath(added);
             },() => { status.textContent = 'Не удалось добавить сериал. Проверь соединение и повтори попытку.'; },12000)
               .finally(() => { button.disabled = false; });
@@ -381,13 +412,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           }));
         }
         async function loadLocalizedMatches() {
-          const entries = await seriesMetadata.russianSearch(query,signal);
-          await Promise.allSettled(entries.filter(entry => !seen.has('tvmaze-' + entry.id)).map(async entry => {
-            const show = await tvmaze('shows/' + entry.id,signal);
-            if (signal.aborted) return;
-            addResult(show,entry.name);
-            if (seen.size) status.textContent = 'Результаты поиска';
-          }));
+          const entries = await seriesMetadata.catalogSearch(query,signal);
+          if (signal.aborted) return;
+          for (const entry of entries) addResult(entry,entry.localized);
+          if (seen.size) status.textContent = 'Результаты поиска';
         }
         const outcomes = await Promise.allSettled([loadMatches(),loadLocalizedMatches()]);
         if (signal.aborted) return;
@@ -1349,7 +1377,17 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       renderEpisode(route.show,route.episode);
     }
     else if (route.season != null) renderSeason(route.show,route.season);
-    else renderShow(route.show);
+    else {
+      renderShow(route.show);
+      if (refreshEpisodeLists.delete(route.show)) {
+        const signal = metadataSession.signal;
+        void fetchEpisodes(route.show.mazeId,signal).then(episodes => {
+          if (signal.aborted || episodes.length < route.show.episodes.length) return;
+          route.show.episodes = episodes;
+          renderCurrentRoute();
+        }).catch(() => {});
+      }
+    }
   }
   return {match,selectRoute,navigation,back,render,openActiveSources};
 }

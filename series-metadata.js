@@ -152,19 +152,26 @@ const seriesMetadata = (() => {
       onTitle(show);
     }
   }
-  async function russianSearch(query,signal) {
-    if (!/\p{Script=Cyrillic}/u.test(query)) return [];
+  async function catalogSearch(query,signal) {
+    const language = /\p{Script=Cyrillic}/u.test(query) ? 'ru' : 'en';
     const url = new URL('https://www.wikidata.org/w/api.php');
     url.search = new URLSearchParams({action:'wbsearchentities',format:'json',origin:'*',search:query,
-      language:'ru',uselang:'ru',type:'item',limit:'12'});
+      language,uselang:language,type:'item',limit:'12'});
     const data = await json(url,{signal});
-    const items = (data.search || []).filter(item => /^Q\d+$/.test(item.id) && /\p{Script=Cyrillic}/u.test(item.label || ''));
+    const items = (data.search || []).filter(item => /^Q\d+$/.test(item.id) && item.label);
     if (!items.length) return [];
-    const rows = await wikidataRows('SELECT ?show ?id WHERE { VALUES ?show { ' +
-      items.map(item => 'wd:' + item.id).join(' ') + ' } ?show wdt:P8600 ?id . }',signal);
-    const ids = new Map(rows.map(row => [row.show?.value?.split('/').at(-1),Number(row.id?.value)]));
-    return items.map(item => ({id:ids.get(item.id),name:text(item.label,230)}))
-      .filter(item => Number.isInteger(item.id)).slice(0,4);
+    url.search = new URLSearchParams({action:'wbgetentities',format:'json',origin:'*',
+      ids:items.map(item => item.id).join('|'),props:'claims|labels',languages:'ru|en'});
+    const {entities} = await json(url,{signal});
+    return items.flatMap(item => {
+      const entity = entities?.[item.id];
+      const value = property => entity?.claims?.[property]?.find(claim =>
+        claim.rank !== 'deprecated' && claim.mainsnak?.datavalue?.value)?.mainsnak.datavalue.value;
+      const id = value('P8600');
+      if (!/^[1-9]\d{0,8}$/.test(id || '')) return [];
+      return [{id:Number(id),name:text(entity.labels?.en?.value || item.label,230),
+        localized:text(entity.labels?.ru?.value,230),externals:{imdb:value('P345')}}];
+    }).slice(0,6);
   }
   async function wikidata(show,signal) {
     const imdb = show.imdb?.id;
@@ -513,7 +520,7 @@ const seriesMetadata = (() => {
     } finally { translator.destroy(); }
   }
 
-  return {loadEpisodeTitles,searchTitles,russianSearch,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
+  return {loadEpisodeTitles,searchTitles,catalogSearch,rememberSearchTitle:(show,title) => save(show,{searchRuTitle:title}),translateIfReady,apiKey,setApiKey,tmdbToken,setTmdbToken,transparentLogo,read,load,episode,kinopoiskId,details,translateShow,canTranslate,translate,plain};
 })();
 
 export {seriesMetadata};
