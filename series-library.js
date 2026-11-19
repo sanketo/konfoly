@@ -31,9 +31,9 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     official:interns.official,tmdbId:interns.tmdbId,hue:interns.hue,imdb:importedInterns.imdb || interns.imdb
   });
   const indexedShows = Object.entries(seriesEditorial).flatMap(([id,entry]) => {
-    const {title,original,years,image,description,source,imdb,seasonCount,episodeCount} = entry;
-    const show = {id:'tvmaze-' + id,mazeId:Number(id),title,original,years,image,description,source,imdb,seasonCount,episodeCount};
-    const existing = imported.find(item => item.mazeId === show.mazeId);
+    const {title,original,years,image,description,source,imdb,seasonCount,episodeCount,featured,genres} = entry;
+    const show = {id:'tvmaze-' + id,mazeId:Number(id),title,original,years,image,description,source,imdb,seasonCount,episodeCount,featured,genres};
+    const existing = imported.find(item => matchesCatalog(item,{id:show.mazeId,externals:{imdb:imdb?.id}}));
     if (!existing) return [show];
     for (const [key,value] of Object.entries(show)) if (value != null && !existing[key]) existing[key] = value;
     if (image?.startsWith('assets/')) existing.image = image;
@@ -64,6 +64,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   let selectedShow;
   let selectedEpisode;
   let selectedSeason;
+  let quickPlayPath;
   let cleanup;
   let metadataSession;
   let episodeDetails;
@@ -295,15 +296,15 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (show.image === image) setShowPalette(card,hue,chroma);
     });
   }
-  function showCard(show,themeElement,saved=false) {
+  function showCard(show,themeElement,compact=false) {
     const tile = link(undefined,showPath(show),'library-tile');
     const copy = make('span','library-tile-copy');
     const name = seriesDisplayTitle(show);
     const title = make('strong',null,name);
-    if (saved) title.title = name;
+    if (compact) title.title = name;
     copy.append(title);
     if (show.preview && name !== show.title) copy.append(make('span','library-tile-original',show.title));
-    if (saved) {
+    if (compact) {
       const metadata = savedCardFacts(show);
       if (metadata.childElementCount) copy.append(metadata);
     } else {
@@ -401,6 +402,29 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     shows.set(show.id,show);
     searchPreviews.delete(show.id);
     return !show.sessionOnly;
+  }
+  function renderFeatured() {
+    const featured = libraryShows().filter(show => show.featured);
+    const sections = [['series','Сериалы для просмотра'],['anime','Аниме']].map(([type,title]) => {
+      const section = make('section','library-featured');
+      const heading = make('div','section-title');
+      heading.append(make('h2',null,title));
+      const tiles = make('div','library-grid');
+      for (const show of featured.filter(item => item.featured === type)) {
+        const card = make('div','library-collection-card');
+        const path = watchPath(show,{season:1,episode:1});
+        const watch = link('▶ Смотреть',path,'library-tile-action tonal');
+        watch.setAttribute('aria-label','Смотреть: ' + seriesDisplayTitle(show));
+        watch.onclick = event => {
+          if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) quickPlayPath = path;
+        };
+        card.append(showCard(show,card,true),watch);
+        tiles.append(card);
+      }
+      section.append(heading,tiles);
+      return section;
+    });
+    $('library-featured').replaceChildren(...sections);
   }
   function renderLibrary(focusSearch) {
     const grid = $('library-grid');
@@ -508,9 +532,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       undo.onclick = null;
     }
     renderSavedGrid();
+    renderFeatured();
     function searchCard(show) {
-      const card = make('div','library-search-card');
-      const add = make('button','library-search-add tonal','Добавить в каталог');
+      const card = make('div','library-collection-card');
+      const add = make('button','library-tile-action tonal','Добавить в каталог');
       add.type = 'button';
       const markSaved = () => {
         add.textContent = 'В каталоге';
@@ -982,8 +1007,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     function updateShowDetails() {
       renderTitle();
       const details = seriesMetadata.details(show);
-      facts.textContent = [showYears(show),details.genres.join(', '),'Возрастной рейтинг ' + (details.ageRating || 'не указан')]
-        .filter(Boolean).join(' · ');
+      const ageText = 'Возрастной рейтинг ' + (details.ageRating || 'не указан');
+      const age = details.ageRatingSource ? external(ageText,details.ageRatingSource) : ageText;
+      const info = [showYears(show),details.genres.join(', ')].filter(Boolean).join(' · ');
+      facts.replaceChildren(...(info ? [info,' · '] : []),age);
       const foreign = !!details.description.text && !/\p{Script=Cyrillic}/u.test(details.description.text);
       synopsis.textContent = details.description.text || 'Сюжетное описание пока недоступно.';
       translateShow.hidden = !foreign;
@@ -1582,6 +1609,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (sourceBox.open) sourceBox.close();
       screen.replaceChildren();
     };
+    if (quickPlayPath === watchPath(show,item)) {
+      quickPlayPath = undefined;
+      startAutomatic();
+    }
   }
   const posterColors = new Map();
   function posterPalette(url) {
@@ -1642,6 +1673,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     }
   }
   function render(route) {
+    if (quickPlayPath !== location.hash) quickPlayPath = undefined;
     palette(route);
     $('series').classList.toggle('watch-page',!!route.episode);
     metadataSession?.abort();

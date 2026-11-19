@@ -6,7 +6,7 @@ import {breakingBad, interns, seriesEditorial, seriesPremises} from './series-da
 import {localizedSeriesTitle} from './series-titles-ru.js';
 import {imdbScore, loadCinemetaGenres, loadCinemetaRating, validImdb} from './cinemeta.js';
 import {descriptionLanguage, translatePublicDescription} from './description-translation.js';
-import {loadAppleAgeRating} from './series-age-ratings.js';
+import {loadAppleAgeRating, publishedAgeRating} from './series-age-ratings.js';
 
 const seriesMetadata = (() => {
   const keyName = 'konfoly-kinopoisk-api-key';
@@ -116,7 +116,8 @@ const seriesMetadata = (() => {
     const editorial = editorialAgeRating(show);
     const data = read(show);
     const tmdb = data.tmdbAgeRating || '';
-    return russianAgeRating(editorial) || data.kpAgeRating || russianAgeRating(tmdb) || editorial || tmdb ||
+    return russianAgeRating(editorial) || data.kpAgeRating || russianAgeRating(tmdb) ||
+      editorial || publishedAgeRating(show)?.label || tmdb ||
       data.appleAgeRating || data.wikiAgeRating || '';
   }
 
@@ -652,8 +653,11 @@ const seriesMetadata = (() => {
     const description = curated || (kpSynopsis ? {text:kpSynopsis,source:'https://www.kinopoisk.ru/series/' + data.kpId + '/',label:'Кинопоиск'} :
       translated ? {text:translated,label:'Машинный перевод'} : {text:synopsis});
     const genres = showGenres(show);
+    const rating = ageRating(show);
+    const published = publishedAgeRating(show);
     return {title:data.kpTitle || editorial?.title || data.ruTitle || data.searchRuTitle || data.translatedShow?.title || show.title,
-      description,originalDescription:translated && description.text === translated ? synopsis : '',ageRating:ageRating(show),
+      description,originalDescription:translated && description.text === translated ? synopsis : '',ageRating:rating,
+      ageRatingSource:published?.label === rating ? published?.source : undefined,
       genres:genres.length ? genres : localizedGenres([show.genre])};
   }
   async function translateShow(show,signal,onChange,{online=false,onProgress}={}) {

@@ -28,6 +28,18 @@ const seriesIdentities = [
   // Netflix's US classifications.
   {mazeId:17861,imdbId:'tt5753856',kinopoiskId:1032606,ageRating:'TV-MA (США)'},
   {mazeId:27436,imdbId:'tt6468322',ageRating:'TV-MA (США)'},
+  {mazeId:118,imdbId:'tt0412142',kinopoiskId:178710,hue:260,chroma:.12},
+  {mazeId:123,imdbId:'tt0411008',kinopoiskId:104122,hue:155,chroma:.14},
+  {mazeId:44933,imdbId:'tt11280740',kinopoiskId:1343318,hue:212,chroma:.11},
+  {mazeId:54198,imdbId:'tt14452776',kinopoiskId:4481731,hue:245,chroma:.13},
+  {mazeId:30386,imdbId:'tt1312171',kinopoiskId:463401,hue:325,chroma:.13},
+  {mazeId:396,imdbId:'tt1865718',kinopoiskId:591929,hue:90,chroma:.16},
+  {mazeId:1871,imdbId:'tt4158110',kinopoiskId:859908,hue:26,chroma:.17},
+  {mazeId:19,imdbId:'tt0460681',kinopoiskId:178707,hue:55,chroma:.10},
+  {mazeId:216,imdbId:'tt2861424',kinopoiskId:685246,hue:140,chroma:.19},
+  {mazeId:2071,imdbId:'tt1355642',kinopoiskId:452838,hue:35,chroma:.19},
+  {mazeId:48450,imdbId:'tt12343534',kinopoiskId:1381125,hue:282,chroma:.19},
+  {mazeId:4201,imdbId:'tt4508902',kinopoiskId:942544,hue:78,chroma:.18},
   {mazeId:44776,hue:151,chroma:.17},
   {mazeId:8,imdbId:'tt3107288',hue:54,chroma:.18}
 ];

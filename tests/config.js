@@ -162,6 +162,10 @@ test('series pages prefer a short premise and resolve ratings by either identity
   assert.equal(details.ageRating,'18+');
   assert.equal(seriesMetadata.ageRating({id:'tvmaze-1505',mazeId:1505}),'18+');
   assert.equal(seriesMetadata.ageRating({id:'tvmaze-38134',mazeId:38134}),'TV-MA (США)');
+  assert.equal(seriesMetadata.ageRating({id:'tvmaze-48450',mazeId:48450}),'TV-MA (США)');
+  const anime = seriesMetadata.details({id:'imdb-tt12343534',imdb:{id:'tt12343534'},title:'Jujutsu Kaisen'});
+  assert.equal(anime.ageRating,'TV-MA (США)');
+  assert.equal(anime.ageRatingSource,'https://www.netflix.com/title/81278456');
 });
 
 test('translation falls back online using the synopsis language and keeps the original premise', async (context) => {
