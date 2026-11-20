@@ -182,8 +182,14 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const requestedSeason = Number(parts[2] || parts[3]) || undefined;
       if (!parts[2] && !parts[3] && directoryCatalogs.has(show)) return {page:'series',show};
       if (parts[2] === 'all' && directoryCatalogs.has(show)) {
-        const seasons = partialSeasons.get(show);
-        const episodes = seasons ? [...seasons.values()].flat().sort((a,b) => a.season - b.season || a.episode - b.episode) : [];
+        const loaded = partialSeasons.get(show);
+        const episodes = [];
+        // Keep later seasons out of the list until every earlier season is available.
+        for (const number of seasonsFor(show)) {
+          const season = loaded?.get(number);
+          if (!season) break;
+          episodes.push(...season);
+        }
         return {page:'series',show:{...show,episodes,partialCatalog:true},season:0};
       }
       const savedSeason = requestedSeason ? cachedEpisodes(catalogKey(show) + ':season:' + requestedSeason) : {};
@@ -1165,7 +1171,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       nextSeason.disabled = true;
       nextSeasonStatus.textContent = 'Загружаем сезон ' + number + '…';
       try {
-        const stored = cachedEpisodes(catalogKey(original) + ':season:' + number).episodes;
+        const stored = partialSeasons.get(original)?.get(number) ||
+          cachedEpisodes(catalogKey(original) + ':season:' + number).episodes;
         const added = stored || (await fetchEpisodes(original,controller.signal,{
           preferredSeason:number,seasonOnly:true,onSeasons:() => {}
         })).episodes;
