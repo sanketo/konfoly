@@ -1,7 +1,7 @@
 const mentalistPages = {
   path(season, episode) {
     if (!season) return '/mentalist/';
-    return '/mentalist/season/' + season + '/' + (episode ? 'episode/' + episode + '/' : '');
+    return '/mentalist/season/' + season + '/' + (episode ? '?episode=' + episode : '');
   },
   episodeTitle(item) {
     if (item.season === 6 && item.episode === 8) return 'Серия 8';

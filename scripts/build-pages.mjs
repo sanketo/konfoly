@@ -59,23 +59,8 @@ function catalogPage(season, items) {
     .replace('<div id="episodes" class="episodes"></div>', () => `<div id="episodes" class="episodes">\n${cards}\n</div>`);
 }
 
-function episodePage(item) {
-  const path = episodePath(item);
-  const metadata = mentalistPages.metadata(item.season, item);
-  return documentFor(path, metadata, 'watch')
-    .replace('id="episode-number" class="eyebrow"></p>', `id="episode-number" class="eyebrow">СЕЗОН ${item.season} · СЕРИЯ ${item.episode}</p>`)
-    .replace('id="episode-title" class="page-title"></h1>', () => `id="episode-title" class="page-title">${escape(metadata.heading)}</h1>`)
-    .replace('id="episode-description"></p>', () => `id="episode-description">${escape(item.description || '')}</p>`)
-    .replace('id="episode-season-link" href="/mentalist/"', `id="episode-season-link" href="${mentalistPages.path(item.season)}"`)
-    .replace('id="share-link" href="/#watch"', `id="share-link" href="${path}"`);
-}
-
 const pages = new Map([['/', home], [mentalistPages.path(), catalogPage(0, episodeCatalog)]]);
 for (const [season, items] of seasons) pages.set(mentalistPages.path(season), catalogPage(season, items));
-for (const item of episodeCatalog) {
-  if (pages.has(episodePath(item))) throw Error('Повторяется адрес эпизода ' + episodePath(item));
-  pages.set(episodePath(item), episodePage(item));
-}
 
 await rm(resolve(root, 'mentalist'), {recursive:true, force:true});
 await Promise.all([...pages].map(async ([path, html]) => {
@@ -86,4 +71,4 @@ await Promise.all([...pages].map(async ([path, html]) => {
 const sitemap = [...pages.keys()].map(path => `  <url><loc>${origin}${path}</loc></url>`).join('\n');
 await writeFile(resolve(root, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemap}\n</urlset>\n`);
-console.log(`Создано ${pages.size} страниц для ${seasons.size} сезонов и ${episodeCatalog.length} эпизодов.`);
+console.log(`Создано ${pages.size} страниц со ссылками на ${episodeCatalog.length} эпизодов.`);

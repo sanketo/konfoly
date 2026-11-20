@@ -77,10 +77,11 @@ function chooseRoute() {
     const pathname = location.pathname.replace(/\/index\.html$/,'/');
     const seasonPath = /^\/mentalist\/season\/(\d+)(?:\/episode\/(\d+))?\/?$/.exec(pathname);
     if (seasonPath) {
-      const [,season,episode] = seasonPath;
+      const [,season,oldEpisode] = seasonPath;
+      const episode = oldEpisode || new URLSearchParams(location.search).get('episode');
       const item = episode && episodeById.get(episodeId(season,episode));
       if (item) return {page:'watch',item};
-      if (!episode && counts[Number(season) - 1]) return {page:'catalog',season:Number(season)};
+      if (counts[Number(season) - 1]) return {page:'catalog',season:Number(season)};
     }
     if (/^\/mentalist\/?$/.test(pathname)) return {page:'catalog',season:0};
   }
@@ -107,14 +108,15 @@ function route() {
   page = next.page;
   const canonical = document.querySelector('link[rel="canonical"]');
   const meta = document.querySelector('meta[name="description"]');
-  const publicPath = page === 'watch' ? episodePath(current)
+  const publicPath = page === 'watch' ? mentalistPages.path(current.season)
     : page === 'catalog' ? mentalistPages.path(catalogSeason) : '/';
   const metadata = page === 'watch' ? mentalistPages.metadata(current.season,current)
     : page === 'catalog' ? mentalistPages.metadata(catalogSeason) : homeMetadata;
   document.title = metadata.title;
   meta.content = metadata.description;
   canonical.href = new URL(publicPath,canonical.href).href;
-  window.konfolyMetricaPage?.(page,location.pathname === publicPath ? publicPath : null);
+  const publicView = next.item ? episodePath(next.item) : publicPath;
+  window.konfolyMetricaPage?.(page,location.pathname === publicPath ? publicView : null);
   for (const panel of document.querySelectorAll('.page')) {
     panel.hidden = panel.id !== page;
     if (switchedPage && !panel.hidden) panel.animate?.(
@@ -136,17 +138,19 @@ function route() {
 }
 function navigate(path) {
   const url = new URL(path,location.origin);
-  url.search = location.search;
-  if (url.href === location.href) return;
+  for (const [key,value] of new URLSearchParams(location.search)) {
+    if (key !== 'episode') url.searchParams.append(key,value);
+  }
+  if (url.href === location.href) return false;
   history.pushState(null,'',url);
   route();
+  return true;
 }
 function openEpisode(item, time = 0) {
   clearMedia();
   current = item;
   pendingPosition = time;
-  if (location.pathname === episodePath(item) && !location.hash) route();
-  else navigate(episodePath(item));
+  if (!navigate(episodePath(item))) route();
 }
 function refreshHome() {
   const last = latestView();
