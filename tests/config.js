@@ -124,8 +124,8 @@ test('independent catalog searches series and accepts only correctly numbered ep
   assert.equal(episodes[0].image,'https://episodes.metahub.space/pilot.jpg');
 });
 
-test('episode guide resolves an exact IMDb match when Wikidata Query Service fails', async (context) => {
-  context.mock.method(globalThis,'fetch',async address => {
+test('episode guide caches the verified article after falling back from Wikidata Query Service', async (context) => {
+  const fetchMock = context.mock.method(globalThis,'fetch',async address => {
     const url = new URL(address);
     if (url.hostname === 'query.wikidata.org') throw Error('Network unavailable');
     if (url.searchParams.get('action') === 'wbsearchentities') {
@@ -136,7 +136,11 @@ test('episode guide resolves an exact IMDb match when Wikidata Query Service fai
     return Response.json({entities:{Q1:entity('tt11111111','Example (film)'),Q2:entity('tt22222222','Example (TV series)')}});
   });
   const show = {id:'imdb-tt22222222',title:'Example',imdb:{id:'tt22222222'}};
-  assert.equal(await seriesMetadata.wikiEpisodeArticle(show,new AbortController().signal),'Example (TV series)');
+  const signal = new AbortController().signal;
+  assert.equal(await seriesMetadata.wikiEpisodeArticle(show,signal),'Example (TV series)');
+  const lookups = fetchMock.mock.callCount();
+  assert.equal(await seriesMetadata.wikiEpisodeArticle(show,signal),'Example (TV series)');
+  assert.equal(fetchMock.mock.callCount(),lookups);
 });
 
 test('IMDb series rating is loaded without episodes, validated and cached by title ID', async (context) => {

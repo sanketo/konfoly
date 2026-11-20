@@ -360,7 +360,13 @@ const seriesMetadata = (() => {
     }
     return Promise.any([byId(),byTitle()]);
   }
-  const wikiEpisodeArticle = (show,signal) => wikiSeriesArticle(show,signal,'en');
+  async function wikiEpisodeArticle(show,signal) {
+    const cached = read(show).wikiEpisodeArticle;
+    if (cached) return cached;
+    const article = await wikiSeriesArticle(show,signal,'en');
+    if (article && !signal.aborted) save(show,{wikiEpisodeArticle:article});
+    return article;
+  }
   async function wikiPlot(show,signal) {
     const title = await wikiSeriesArticle(show,signal,'ru');
     if (!title || signal.aborted) return null;
@@ -443,8 +449,8 @@ const seriesMetadata = (() => {
     const data = read(show);
     const key = apiKey();
     const jobs = [];
-    const needsGenres = !showGenres(show).length && !Object.hasOwn(data,'mazeGenres');
-    const canLoadCinemetaGenres = validImdb(show.imdb?.id) && !fresh(data.cinemetaGenresCheckedAt);
+    const needsGenres = !show.partialCatalog && !showGenres(show).length && !Object.hasOwn(data,'mazeGenres');
+    const canLoadCinemetaGenres = !show.partialCatalog && validImdb(show.imdb?.id) && !fresh(data.cinemetaGenresCheckedAt);
     const plotJob = ((needsGenres && !canLoadCinemetaGenres) || (!curatedPlot(show) && !fresh(data.mazePlotCheckedAt)))
       ? loadMazePlot(show,signal,onChange).catch(() => {}) : null;
     if (plotJob) jobs.push(plotJob);
