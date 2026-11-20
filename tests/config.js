@@ -81,6 +81,21 @@ test('only the configured voice and episode range use the combined finale', () =
   assert.equal(integrationSettings.embeds.tomion,undefined);
 });
 
+test('native video mappings accept IMDb and TVmaze IDs for the same edition', () => {
+  for (const [mazeId,imdbId,kinopoiskId] of [
+    [33352,'tt7631058',1112513],
+    [78665,'tt33043892',6058297],
+    [31396,'tt7441658',1049731],
+    [53277,'tt13016388',4693201],
+    [13,'tt3107288',817506]
+  ]) {
+    const fromImdb = seriesIdentity({imdb:{id:imdbId}});
+    assert.equal(fromImdb?.kinopoiskId,kinopoiskId);
+    assert.equal(seriesIdentity({mazeId}),fromImdb);
+  }
+  assert.equal(seriesIdentity({imdb:{id:'tt20242042'}})?.kinopoiskId,undefined);
+});
+
 test('storage errors are observable and do not abort the session', () => {
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
     getItem() { throw Error('storage disabled'); },

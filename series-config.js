@@ -41,7 +41,24 @@ const seriesIdentities = [
   {mazeId:48450,imdbId:'tt12343534',kinopoiskId:1381125,hue:282,chroma:.19},
   {mazeId:4201,imdbId:'tt4508902',kinopoiskId:942544,hue:78,chroma:.18},
   {mazeId:44776,hue:151,chroma:.17},
-  {mazeId:13,imdbId:'tt3107288',hue:54,chroma:.18}
+  {mazeId:13,imdbId:'tt3107288',kinopoiskId:817506,hue:54,chroma:.18},
+  {mazeId:33352,imdbId:'tt7631058',kinopoiskId:1112513,title:'Властелин колец: Кольца власти'},
+  {mazeId:87480,imdbId:'tt8014982',kinopoiskId:14610135,title:'Тело'},
+  {mazeId:75026,imdbId:'tt31510819',kinopoiskId:5512084,title:'Гангстерленд'},
+  {mazeId:78665,imdbId:'tt33043892',kinopoiskId:6058297,title:'Декстер: Воскрешение'},
+  {mazeId:54723,imdbId:'tt9813792',kinopoiskId:4476885,title:'Извне'},
+  {mazeId:31396,imdbId:'tt7441658',kinopoiskId:1049731,title:'Чёрный клевер'},
+  {mazeId:64087,imdbId:'tt21906238',kinopoiskId:5941969,title:'Соперники'},
+  {mazeId:45039,imdbId:'tt5875444',kinopoiskId:1331649,title:'Медленные лошади'},
+  {mazeId:79399,imdbId:'tt21097264',kinopoiskId:7865896,title:'К востоку от Эдема'},
+  {mazeId:47856,imdbId:'tt11743610',kinopoiskId:4396199,title:'Список смертников'},
+  {mazeId:45562,imdbId:'tt11540908',kinopoiskId:1343910,title:'Кэрри'},
+  {mazeId:59344,imdbId:'tt16358384',kinopoiskId:4760854,title:'Король Талсы'},
+  {mazeId:60213,imdbId:'tt17491088',kinopoiskId:4859971,title:'Дипломатка'},
+  {mazeId:38052,imdbId:'tt14688458',kinopoiskId:4541515,title:'Укрытие'},
+  {mazeId:43031,imdbId:'tt9288030',kinopoiskId:1209839,title:'Джек Ричер'},
+  {mazeId:53277,imdbId:'tt13016388',kinopoiskId:4693201,title:'Задача трёх тел'},
+  {mazeId:37336,imdbId:'tt2788316',kinopoiskId:749562,title:'Сёгун'}
 ];
 
 function seriesIdentity(show) {
