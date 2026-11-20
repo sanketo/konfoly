@@ -122,6 +122,7 @@ function route() {
       {duration:matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 330,easing:'cubic-bezier(.22,1,.36,1)'});
   }
   for (const link of document.querySelectorAll('.navigation a')) {
+    if (link.dataset.localRoute === 'watch') link.href = episodePath(current);
     if (link.dataset.localRoute === page) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   }
@@ -686,7 +687,7 @@ platform.configure(() => {
 document.querySelector('.skip').onclick = event => {event.preventDefault();$('content').focus()};
 document.addEventListener('click',event => {
   if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  const link = event.target.closest('a[data-local-route]');
+  const link = event.target.closest?.('a[data-local-route]');
   if (!link) return;
   event.preventDefault();
   if (link.closest('.season-tiles, .segments')) platform.tap();

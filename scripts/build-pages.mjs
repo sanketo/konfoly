@@ -24,6 +24,7 @@ const home = (await readFile(resolve(root, 'index.html'), 'utf8')).replace(
 );
 const shell = home
   .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>\n/, '')
+  .replace('fetchpriority="high"', 'loading="lazy"')
   .replace('<section id="home" class="page home-page">', '<section id="home" class="page home-page" hidden>');
 
 function documentFor(path, metadata, page) {
@@ -31,6 +32,7 @@ function documentFor(path, metadata, page) {
     .replace(/<title>.*?<\/title>/, () => `<title>${escape(metadata.title)}</title>`)
     .replace(/(<meta name="description" content=")[^"]*/, (_, open) => open + escape(metadata.description))
     .replace(/(<link rel="canonical" href=")[^"]*/, (_, open) => open + origin + path)
+    .replace('class="skip" href="#content"', `class="skip" href="${path}#content"`)
     .replace(`<section id="${page}" class="page" hidden>`, `<section id="${page}" class="page">`)
     .replace(`data-local-route="${page}"`, `data-local-route="${page}" aria-current="page"`);
 }

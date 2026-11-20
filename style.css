@@ -130,9 +130,9 @@ footer{color:var(--muted);display:flex;flex-wrap:wrap;justify-content:space-betw
  .navigation{--nav-edge:4px;--nav-gap:6px;--nav-slot:calc((100% - 2 * var(--nav-edge) - 3 * var(--nav-gap)) / 4);--nav-index:0;
   position:sticky;inset:var(--safe-top) auto auto;width:calc(min(100%, 1280px) - 2 * var(--space));margin:0 auto 12px;
   padding:var(--nav-edge);gap:var(--nav-gap);border-radius:var(--r-medium);isolation:isolate}
- .navigation:has(a[href="#catalog"][aria-current]){--nav-index:1}
- .navigation:has(a[href="#watch"][aria-current]){--nav-index:2}
- .navigation:has(a[href="#settings"][aria-current]){--nav-index:3}
+ .navigation:has(a[data-local-route="catalog"][aria-current]){--nav-index:1}
+ .navigation:has(a[data-local-route="watch"][aria-current]){--nav-index:2}
+ .navigation:has(a[data-local-route="settings"][aria-current]){--nav-index:3}
  .navigation:has(a[aria-current])::before{content:"";position:absolute;z-index:-1;inset-block:var(--nav-edge);inset-inline-start:var(--nav-edge);width:var(--nav-slot);border-radius:calc(var(--r-medium) - var(--nav-edge));background:var(--tonal);transform:translateX(calc(var(--nav-index) * (100% + var(--nav-gap))));transition:transform .4s cubic-bezier(.22,.9,.35,1)}
  .navigation a{flex:1 1 0;display:flex;align-items:center;justify-content:center;padding:0 16px;gap:8px;min-height:50px;border-radius:calc(var(--r-medium) - var(--nav-edge));font-size:.88rem;transition:color .2s ease}
  .navigation a[aria-current] span{animation:none}
