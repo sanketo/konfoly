@@ -1614,14 +1614,21 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         if (event.origin !== url.origin || event.source !== frame.contentWindow) return;
         let message;
         try { message = JSON.parse(event.data); } catch { return; }
-        if (message.event === 'onError') fail();
-        if (message.event === 'onReady' || message.info?.playerState === 1) clearTimeout(timer);
+        if (message.event === 'onError') {
+          fail();
+          return;
+        }
+        if (message.event === 'onReady' || Number.isFinite(message.info?.playerState)) {
+          clearTimeout(timer);
+          clearInterval(connectTimer);
+        }
       };
       const timer = setTimeout(fail,15000);
       const subscribe = () => {
-        frame.contentWindow.postMessage(JSON.stringify({event:'listening',id:1,channel:'widget'}),url.origin);
-        frame.contentWindow.postMessage(JSON.stringify({event:'command',func:'addEventListener',args:['onError']}),url.origin);
+        frame.contentWindow?.postMessage(JSON.stringify({event:'listening',id:1,channel:'widget'}),url.origin);
+        frame.contentWindow?.postMessage(JSON.stringify({event:'command',func:'addEventListener',args:['onError']}),url.origin);
       };
+      const connectTimer = setInterval(subscribe,500);
       function fail() {
         if (closed) return;
         release?.();
@@ -1632,6 +1639,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       release = () => {
         closed = true;
         clearTimeout(timer);
+        clearInterval(connectTimer);
         window.removeEventListener('message',receive);
         frame.remove();
       };
