@@ -28,8 +28,15 @@ function catalogRecordId(entry) {
   return entry.imdbId ? 'imdb-' + entry.imdbId : 'tmdb-' + entry.tmdbId;
 }
 
-function episodeAvailability(record,episode) {
+function episodeAvailability(record,episode,{directOnly=false}={}) {
   if (!record) return null;
+  if (directOnly && record.confirmed?.length) {
+    const direct = key => record.confirmedProviders?.[key]?.some(provider => provider === 'video' || provider === 'manifest');
+    if (episode) return direct(episode.season + ':' + episode.episode) ? 'AVAILABLE' : 'MISSING_PLAYER';
+    const count = record.confirmed.filter(direct).length;
+    if (!count) return 'MISSING_PLAYER';
+    return count === record.confirmed.length && record.availability === 'AVAILABLE' ? 'AVAILABLE' : 'PARTIAL';
+  }
   if (!episode) return record.availability;
   if (record.confirmed?.includes(episode.season + ':' + episode.episode)) return 'AVAILABLE';
   return record.availability === 'UNVERIFIED' ? 'UNVERIFIED' : 'MISSING_PLAYER';

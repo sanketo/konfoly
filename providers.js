@@ -163,7 +163,7 @@ function requireIntegrationUrl(url,kind) {
   if (!isIntegrationUrl(url,kind)) throw Error('Домен источника не разрешён в этой сборке Konfoly.');
   return url;
 }
-async function resolveEpisodeEndpoint(show,item,signal,choice) {
+async function resolveEpisodeEndpoint(show,item,signal,choice,{videoOnly=false}={}) {
   item = canonicalEpisode(show,item);
   const address = mediaAddress(episodeEndpoint(),item.season,item.episode);
   if (!address) throw Error('Укажи общий видеоисточник в настройках.');
@@ -185,6 +185,7 @@ async function resolveEpisodeEndpoint(show,item,signal,choice) {
     const url = typeof row?.url === 'string' && mediaAddress(row.url,item.season,item.episode);
     if (!url || addresses.has(url)) continue;
     const kind = row.kind === 'embed' ? 'embed' : 'video';
+    if (videoOnly && kind === 'embed') continue;
     if (!isIntegrationUrl(url,kind === 'embed' ? 'frame' : 'media')) { blocked = true; continue; }
     addresses.add(url);
     const label = typeof row.voice === 'string' ? row.voice.trim().slice(0,120) : '';
@@ -443,7 +444,7 @@ function renderStreamChoices(container,name,items=[],selected,onChange,showSingl
   enhance(select);
 }
 
-function previewEpisodeVoices(show,item,signal,callback) {
+function previewEpisodeVoices(show,item,signal,callback,{nativeEnabled=true,videoOnly=false}={}) {
   const native = async () => {
     const id = seriesNativeId(show) || await seriesMetadata.kinopoiskId(show,signal);
     if (!id) return [];
@@ -451,9 +452,9 @@ function previewEpisodeVoices(show,item,signal,callback) {
     return discoverNativeVoices(id,number.season,number.episode,signal);
   };
   const providers = [
-    ['native',native,canResolveSeriesNative(show)],
+    ['native',native,nativeEnabled && canResolveSeriesNative(show)],
     ['stremio',async () => (await resolveStremio(show,item,signal)).voices,stremioSource() && canUseStremio(show)],
-    ['endpoint',async () => (await resolveEpisodeEndpoint(show,item,signal)).voices,episodeEndpoint()]
+    ['endpoint',async () => (await resolveEpisodeEndpoint(show,item,signal,undefined,{videoOnly})).voices,episodeEndpoint()]
   ].filter(([, , enabled]) => enabled);
   const found = new Map();
   for (const [source,load] of providers) void load().then(items => {

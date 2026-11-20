@@ -60,6 +60,16 @@ test('imported Interns and the four-season edition map only on provider lookup',
   assert.throws(() => canonicalEpisode({mazeId:3391}, {...item,title:'Неизвестно'}));
 });
 
+test('an official iframe does not count as video for the native player', () => {
+  const record = {availability:'AVAILABLE',confirmed:['1:1','1:2'],
+    confirmedProviders:{'1:1':['official'],'1:2':['video','manifest']}};
+  const directOnly = {directOnly:true};
+  assert.equal(episodeAvailability(record,undefined,directOnly),'PARTIAL');
+  assert.equal(episodeAvailability(record,{season:1,episode:1},directOnly),'MISSING_PLAYER');
+  assert.equal(episodeAvailability(record,{season:1,episode:2},directOnly),'AVAILABLE');
+  assert.equal(episodeAvailability(record,{season:1,episode:1}),'AVAILABLE');
+});
+
 test('only the configured voice and episode range use the combined finale', () => {
   const id = mentalistCatalog.kinopoiskId;
   const rule = combinedEpisodeRule(id,3,24,'ТВ3');
