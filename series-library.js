@@ -42,6 +42,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show)),...indexedShows];
   const shows = new Map([mentalist,breakingBad,interns,...indexedShows,...imported].map(show => [show.id,show]));
   const searchPreviews = new Map();
+  let lastSearch;
   const showPath = show => '#series/' + show.id;
   const seasonPath = (show,season) => showPath(show) + '/season/' + (season || 'all');
   const watchPath = (show,item) => showPath(show) + '/' + item.season + '/' + item.episode;
@@ -573,7 +574,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       catch { if (!session.signal.aborted && operation === controller) onFailure(); }
       finally { clearTimeout(timer); }
     }
-    function search() {
+    function search({restore=false}={}) {
       clearTimeout(debounce);
       operation?.abort();
       operation = null;
@@ -582,6 +583,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       results.replaceChildren();
       status.textContent = '';
       if (query.length < 2) return;
+      const cachedSearch = restore && lastSearch?.query === query ? lastSearch : null;
+      const rawMatches = new Map();
+      const snapshot = {query,rawMatches,complete:false};
+      lastSearch = snapshot;
       const normalizedTitle = title => title.toLocaleLowerCase('ru').replaceAll('ё','е');
       const normalized = normalizedTitle(query);
       const local = libraryShows().filter(show =>
@@ -592,7 +597,6 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       void run(async signal => {
         const seen = new Set(local.map(show => show.id));
         const previews = [...local];
-        const rawMatches = new Map();
         function addResult(show,localized) {
           const known = libraryShows().find(item => matchesCatalog(item,show));
           const current = previews.find(item => matchesCatalog(item,show));
@@ -690,8 +694,18 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           for (const entry of entries) addResult(entry);
           if (seen.size) status.textContent = 'Результаты поиска';
         }
+        if (cachedSearch) {
+          for (const entry of cachedSearch.rawMatches.values()) addResult(entry,entry.localized);
+          if (seen.size) status.textContent = 'Результаты поиска';
+          if (cachedSearch.complete) {
+            snapshot.complete = true;
+            if (!seen.size) status.textContent = 'Сериал не найден';
+            return;
+          }
+        }
         const outcomes = await Promise.allSettled([loadMatches(),loadLocalizedMatches(),loadCinemetaMatches()]);
         if (signal.aborted) return;
+        snapshot.complete = outcomes.every(item => item.status === 'fulfilled');
         status.textContent = seen.size ? 'Результаты поиска' : outcomes.every(item => item.status === 'rejected')
           ? 'Источники поиска недоступны. Попробуй ещё раз.' : 'Сериал не найден';
       },() => {
@@ -712,6 +726,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     }
     input.oninput = input.oncompositionend = scheduleSearch;
     cleanup = () => { clearTimeout(debounce); ratingObserver?.disconnect(); session.abort(); operation?.abort(); };
+    if (input.value.trim().length >= 2) search({restore:true});
   }
   function imdbLink(record,suffix='ratings/') {
     return 'https://www.imdb.com/title/' + record.id + '/' + suffix;
