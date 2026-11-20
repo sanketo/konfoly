@@ -22,6 +22,7 @@ html{overflow-x:clip;touch-action:manipulation;scrollbar-gutter:stable both-edge
 [hidden]{display:none!important}
 :root[data-start-library] #library{display:block!important}
 :root[data-start-library] #home{display:none}
+:root[data-start-series] #library{display:none}
 body{margin:0;background:var(--surface);color:var(--text);isolation:isolate;padding:var(--safe-top) max(env(safe-area-inset-right),var(--tg-right,0px)) calc(88px + var(--safe-bottom)) max(env(safe-area-inset-left),var(--tg-left,0px))}
 h1,h2,p{margin:0} a{color:inherit} button,input,select{font:inherit;color:inherit}
 :is(button,a,input,select):focus-visible{outline:3px solid var(--outline);outline-offset:3px}

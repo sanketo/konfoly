@@ -1,4 +1,4 @@
-import {cp, mkdir, readFile, readdir, unlink, writeFile} from 'node:fs/promises';
+import {cp, mkdir, readFile, readdir, rm, unlink, writeFile} from 'node:fs/promises';
 import {basename, dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
@@ -6,8 +6,6 @@ import {allowedOrigins, telegramSdk} from '../integrations.js';
 import {cinemetaOrigin, cinemetaImages} from '../cinemeta.js';
 import {translationOrigin} from '../description-translation.js';
 import {appleRatingsOrigin} from '../series-age-ratings.js';
-import popularCatalog from '../data/popular-series.json' with {type:'json'};
-import {preparePublicPages,writePublicPages} from './site-pages.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const out = resolve(root,'dist');
@@ -31,15 +29,11 @@ const sourcePolicy = [
 
 await mkdir(out,{recursive:true});
 const entries = {app:'app.js',style:'style.css',boot:'boot.js'};
-const publicPages = preparePublicPages(popularCatalog);
 const result = await build({
   absWorkingDir:root,
   entryPoints:entries,outdir:out,entryNames:'[name]-[hash]',bundle:true,metafile:true,
   format:'esm',write:false,target:['es2022','safari16'],external:['./assets/*'],minify:true,
-  define:{
-    'globalThis.KONFOLY_METRICA_ID':JSON.stringify(Number(metricaId) || 0),
-    'globalThis.KONFOLY_PUBLIC_ROUTES':JSON.stringify([...publicPages.pages.keys()])
-  }
+  define:{'globalThis.KONFOLY_METRICA_ID':JSON.stringify(Number(metricaId) || 0)}
 });
 const html = await readFile(resolve(root,'index.html'),'utf8');
 let index = html.replace('<meta name="konfoly-csp">','<meta http-equiv="Content-Security-Policy" content="' + sourcePolicy + '">');
@@ -48,8 +42,15 @@ for (const [path,info] of Object.entries(result.metafile.outputs)) {
 }
 for (const file of result.outputFiles) await writeFile(file.path,file.contents);
 for (const entry of ['assets','vendor']) await cp(resolve(root,entry),resolve(out,entry),{recursive:true});
-for (const filename of ['.nojekyll','LICENSE','README.md']) await cp(resolve(root,filename),resolve(out,filename));
-await writePublicPages(out,index,publicPages);
+for (const filename of ['.nojekyll','LICENSE','README.md','404.html','legacy-page.js']) {
+  await cp(resolve(root,filename),resolve(out,filename));
+}
+await writeFile(resolve(out,'index.html'),index);
+await writeFile(resolve(out,'sitemap.xml'),
+  '<?xml version="1.0" encoding="UTF-8"?>\n' +
+  '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+  '  <url><loc>https://sanketo.github.io/konfoly-beta/</loc></url>\n</urlset>\n');
+await rm(resolve(out,'series'),{recursive:true,force:true});
 const current = new Set(result.outputFiles.map(file => basename(file.path)));
 for (const name of await readdir(out)) {
   if (/^(app|boot|style)-[A-Z0-9]+\.(js|css)$/.test(name) && !current.has(name)) await unlink(resolve(out,name));

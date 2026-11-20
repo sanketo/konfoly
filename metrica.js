@@ -1,4 +1,4 @@
-import {indexedPath,siteBase} from './site-pages.js';
+import {siteBase} from './site-pages.js';
 
 const tagAddress = 'https://mc.yandex.ru/metrika/tag.js';
 const counter = globalThis.KONFOLY_METRICA_ID;
@@ -28,8 +28,8 @@ function send(method,...args) {
 function metricaPage(route) {
   const screen = route.page === 'series' ? route.episode ? 'player' :
     route.season != null ? 'episodes' : 'show' : route.page;
-  const path = indexedPath() || siteBase + '#/' + screen;
-  const current = path + ':' + location.hash;
+  const path = siteBase + '#/' + screen;
+  const current = path + ':' + location.search + location.hash;
   if (page === current || route.loadEpisodes && !route.overview && route.season == null) return;
   page = current;
   send('hit',location.origin + path,{params:{screen}});

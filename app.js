@@ -17,7 +17,7 @@ import {integrationSettings} from './integrations.js';
 import {createSeriesLibrary} from './series-library.js';
 import {seriesEnglishPremises} from './series-data.js';
 import {createTelegramSync} from './telegram-sync.js';
-import {appRoute, assetAddress, siteBase, siteHref} from './site-pages.js';
+import {appRoute, assetAddress, selectionParams, siteBase, siteHref} from './site-pages.js';
 
 const watchLayout = $('watch-layout')?.content;
 const integrationLayout = $('integration-settings-layout')?.content;
@@ -124,6 +124,7 @@ function renderCurrentRoute() {
   const next = chooseRoute();
   if (next.page === 'catalog' && next.season != null) catalogSeason = next.season;
   document.documentElement.removeAttribute?.('data-start-library');
+  document.documentElement.removeAttribute?.('data-start-series');
   library.selectRoute(next);
   const switchedPage = next.page !== page;
   const changedEpisode = next.item && key(next.item) !== key(current);
@@ -160,7 +161,9 @@ function renderCurrentRoute() {
 }
 function navigateSite(href) {
   const url = new URL(siteHref(href),location.href);
-  url.search = location.search;
+  for (const [key,value] of new URLSearchParams(location.search)) {
+    if (!selectionParams.includes(key)) url.searchParams.append(key,value);
+  }
   if (url.href !== location.href) history.pushState(null,'',url);
   renderCurrentRoute();
 }
@@ -924,13 +927,11 @@ platform.configure(() => {
 document.querySelector('.skip').onclick = event => {event.preventDefault();$('content').focus()};
 document.addEventListener('click',event => {
   if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  const link = event.target.closest('a[href]');
+  const link = event.target.closest?.('a[href]');
   if (!link || link.target || link.hasAttribute('download')) return;
   const href = link.getAttribute('href');
   const url = new URL(siteHref(href),location.href);
-  if (href === '#content' || url.origin !== location.origin || !url.pathname.startsWith(siteBase)) return;
-  const isPage = href.startsWith('#') || url.pathname === siteBase || url.pathname.startsWith(siteBase + 'series/');
-  if (!isPage) return;
+  if (href === '#content' || url.origin !== location.origin || url.pathname !== siteBase) return;
   event.preventDefault();
   if (link.closest('.season-tiles, .segments')) platform.tap();
   navigateSite(href);
