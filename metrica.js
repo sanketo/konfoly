@@ -4,11 +4,11 @@
   let lastRoute;
   let initialized = false;
 
-  window.konfolyMetricaPage = page => {
+  window.konfolyMetricaPage = (page,publicPath) => {
     const screen = screens[page];
     if (!screen || /(?:tgWebAppData=|tgWebAppVersion=|miniapp=1)/.test(location.search + location.hash) ||
         window.Telegram?.WebApp?.initData) return;
-    const route = location.hash + ':' + screen;
+    const route = publicPath || '/#' + page;
     if (route === lastRoute) return;
     lastRoute = route;
     try {
@@ -24,7 +24,7 @@
         document.head.append(script);
         initialized = true;
       }
-      window.ym(counter,'hit',location.origin + location.pathname + '#/' + screen);
+      window.ym(counter,'hit',location.origin + route,{params:{screen}});
     } catch {}
   };
 })();

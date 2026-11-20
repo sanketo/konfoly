@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#151315">
+<base href="/">
 <title>Менталист — сезоны и эпизоды | Konfoly</title>
 <meta name="description" content="Konfoly — каталог сериала «Менталист» (The Mentalist, 2008–2015). Все 7 сезонов и 151 эпизод с описаниями, оценками и сохранением прогресса просмотра.">
 <link rel="canonical" href="https://konfoly.duckdns.org/">
@@ -17,9 +18,10 @@
   "url": "https://konfoly.duckdns.org/"
 }
 </script>
-<link rel="stylesheet" href="style.css?v=33">
+<link rel="stylesheet" href="style.css?v=34">
 <script defer src="episodes.js?v=13"></script>
 <script defer src="episode-titles-ru.js?v=24"></script>
+<script defer src="site-pages.js?v=1"></script>
 <script defer src="importance.js?v=13"></script>
 <script defer src="providers.js?v=24"></script>
 <script defer src="platform.js?v=15"></script>
@@ -31,18 +33,18 @@
 <script defer src="select-ui.js?v=16"></script>
 <script defer src="ratings-data.js?v=21"></script>
 <script defer src="ratings.js?v=28"></script>
-<script defer src="metrica.js?v=2"></script>
-<script defer src="app.js?v=29"></script>
+<script defer src="metrica.js?v=3"></script>
+<script defer src="app.js?v=30"></script>
 </head>
 <body>
 <div id="snow-field" class="snow-field" aria-hidden="true" hidden></div>
 <a class="skip" href="#content">К содержанию</a>
-<header class="top"><a href="#home" class="brand"><span aria-hidden="true"><img src="assets/red-john.png" width="142" height="192" alt=""></span> konfoly</a><button id="theme-toggle" class="icon-button" aria-label="Переключить светлую и тёмную тему">◐</button></header>
+<header class="top"><a href="/" class="brand" data-local-route><span aria-hidden="true"><img src="assets/red-john.png" width="142" height="192" alt=""></span> konfoly</a><button id="theme-toggle" class="icon-button" aria-label="Переключить светлую и тёмную тему">◐</button></header>
 <nav class="navigation" aria-label="Основная навигация">
-<a href="#home"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg></span>Главная</a>
-<a href="#catalog"><span aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 10v9"/></svg></span>Эпизоды</a>
-<a href="#watch"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5l12 7-12 7z"/></svg></span>Плеер</a>
-<a href="#settings"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="17" r="2"/></svg></span>Настройки</a>
+<a href="/" data-local-route="home"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg></span>Главная</a>
+<a href="/mentalist/" data-local-route="catalog"><span aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 10v9"/></svg></span>Эпизоды</a>
+<a href="/#watch" data-local-route="watch"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5l12 7-12 7z"/></svg></span>Плеер</a>
+<a href="/#settings" data-local-route="settings"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="17" r="2"/></svg></span>Настройки</a>
 </nav>
 <main id="content" tabindex="-1">
 <section id="home" class="page home-page">
@@ -53,18 +55,26 @@
 <p class="show-title">The Mentalist</p><p class="eyebrow hero-facts">2008–2015 · Детектив</p></div>
 <div class="rating-row hero-ratings"><div id="series-ratings" class="rating-list"></div><button id="rate-show" class="rating-action">Моя оценка</button></div>
 <p class="synopsis">Патрик Джейн помогает калифорнийскому бюро расследований раскрывать преступления. Его главный инструмент — умение замечать то, что ускользает от других.</p>
-<div class="hero-actions"><button id="continue-button" class="filled">▶ Смотреть</button><a class="tonal" href="#catalog">Все эпизоды</a></div>
+<div class="hero-actions"><button id="continue-button" class="filled">▶ Смотреть</button><a class="tonal" href="/mentalist/" data-local-route>Все эпизоды</a></div>
 <p id="continue-info" class="muted">7 сезонов · 151 серия</p>
 </div>
 <div class="hero-poster" style="--poster-art:url('assets/mentalist-poster.webp?v=20')"><img class="poster" src="assets/mentalist-poster.webp?v=20" width="620" height="930" alt="Постер сериала «Менталист»" fetchpriority="high"></div>
 </div>
 <section class="home-library" aria-labelledby="library-heading">
-<div class="section-title"><div><p class="eyebrow">КАТАЛОГ</p><h2 id="library-heading">Выбрать сезон</h2></div><a href="#catalog" class="text-action">Все серии →</a></div>
-<div id="home-seasons" class="season-tiles"></div>
+<div class="section-title"><div><p class="eyebrow">КАТАЛОГ</p><h2 id="library-heading">Выбрать сезон</h2></div><a href="/mentalist/" class="text-action" data-local-route>Все серии →</a></div>
+<div id="home-seasons" class="season-tiles">
+<a class="season-tile" href="/mentalist/season/1/" data-local-route><strong>01</strong><small>Сезон · 23</small></a>
+<a class="season-tile" href="/mentalist/season/2/" data-local-route><strong>02</strong><small>Сезон · 23</small></a>
+<a class="season-tile" href="/mentalist/season/3/" data-local-route><strong>03</strong><small>Сезон · 24</small></a>
+<a class="season-tile" href="/mentalist/season/4/" data-local-route><strong>04</strong><small>Сезон · 24</small></a>
+<a class="season-tile" href="/mentalist/season/5/" data-local-route><strong>05</strong><small>Сезон · 22</small></a>
+<a class="season-tile" href="/mentalist/season/6/" data-local-route><strong>06</strong><small>Сезон · 22</small></a>
+<a class="season-tile" href="/mentalist/season/7/" data-local-route><strong>07</strong><small>Сезон · 13</small></a>
+</div>
 </section>
 </section>
 <section id="catalog" class="page" hidden>
-<h1 class="page-title">Эпизоды</h1><p class="eyebrow catalog-facts">7 сезонов · 151 серия</p>
+<h1 id="catalog-title" class="page-title">Эпизоды</h1><p class="eyebrow catalog-facts">7 сезонов · 151 серия</p>
 <button id="catalog-continue" class="resume-action tonal" hidden>Продолжить просмотр</button>
 <div class="rating-row season-rating-row" id="season-rating-row" hidden><div id="season-rating" class="rating-list"></div><button id="rate-season" class="rating-action">Моя оценка</button></div>
 <div class="catalog-toolbar">
@@ -81,7 +91,7 @@
 <div class="watch-stage ym-hide-content"><canvas class="video-ambient" width="48" height="27" aria-hidden="true"></canvas><div id="screen" class="screen"></div></div>
 <div class="watch-status ym-hide-content"><span id="source-status" role="status"></span><span id="quality-status"></span></div>
 <div class="watch-nav"><button id="previous" class="tonal">← Предыдущая</button><button id="next" class="tonal">Следующая →</button></div>
-<div class="watch-description"><div class="rating-row"><div id="episode-ratings" class="rating-list"></div><button id="rate-episode" class="rating-action">Моя оценка</button></div><p id="episode-description"></p><div class="watch-actions"><a id="share-link" href="#watch">Ссылка на серию</a><button id="mark-watched" class="tonal">Отметить просмотренной</button></div><p class="watch-shortcuts muted"><kbd>←</kbd> <kbd>→</kbd> Перемотка на 10 секунд <span>·</span> <kbd>Пробел</kbd> Пауза <span>·</span> Удержание 2×</p><p class="watch-touch-hint muted">Удерживай левый или правый край видео, чтобы включить 2×.</p></div>
+<div class="watch-description"><div class="rating-row"><div id="episode-ratings" class="rating-list"></div><button id="rate-episode" class="rating-action">Моя оценка</button></div><p id="episode-description"></p><div class="watch-actions"><a id="episode-season-link" href="/mentalist/" data-local-route>Все серии сезона</a><a id="share-link" href="/#watch">Ссылка на серию</a><button id="mark-watched" class="tonal">Отметить просмотренной</button></div><p class="watch-shortcuts muted"><kbd>←</kbd> <kbd>→</kbd> Перемотка на 10 секунд <span>·</span> <kbd>Пробел</kbd> Пауза <span>·</span> Удержание 2×</p><p class="watch-touch-hint muted">Удерживай левый или правый край видео, чтобы включить 2×.</p></div>
 <details class="watch-description plot-details" id="episode-plot"><summary>Сюжет и развязка <span>Спойлеры</span></summary><div id="plot-content"></div></details>
 </section>
 <section id="settings" class="page" hidden>

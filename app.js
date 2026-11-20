@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
-const counts = [23,23,24,24,22,22,13];
+const counts = [];
+for (const item of episodeCatalog) counts[item.season - 1] = (counts[item.season - 1] || 0) + 1;
 const settingsKey = 'mentalist-personal-v1';
 const historyKey = 'mentalist-history-v2';
 const saved = readLocal(settingsKey);
@@ -12,6 +13,7 @@ const episodeById = new Map(episodeCatalog.map(item => [episodeId(item.season,it
 let current = episodeById.get(episodeId(saved.season,saved.episode)) || episodeCatalog[0];
 let catalogSeason = current.season;
 let page = 'home';
+let browserAddress = location.href;
 let telegramSync;
 let media, releaseMedia, fileUrl, request, pendingPosition = 0, editEpisode;
 const preferences = {
@@ -38,7 +40,7 @@ function writeLocal(key,value) {
 }
 function episodeId(season,episode) { return season + ':' + episode; }
 function key(item) { return episodeId(item.season,item.episode); }
-function episodeHash(item) { return '#watch/' + item.season + '/' + item.episode; }
+function episodePath(item) { return mentalistPages.path(item.season,item.episode); }
 function persist() {
   writeLocal(settingsKey,{...saved,...preferences,season:current.season,episode:current.episode});
 }
@@ -71,13 +73,29 @@ function make(tag, className, content) {
 }
 function chooseRoute() {
   const hash = location.hash.slice(1);
+  if (!hash || hash === 'content') {
+    const pathname = location.pathname.replace(/\/index\.html$/,'/');
+    const seasonPath = /^\/mentalist\/season\/(\d+)(?:\/episode\/(\d+))?\/?$/.exec(pathname);
+    if (seasonPath) {
+      const [,season,episode] = seasonPath;
+      const item = episode && episodeById.get(episodeId(season,episode));
+      if (item) return {page:'watch',item};
+      if (!episode && counts[Number(season) - 1]) return {page:'catalog',season:Number(season)};
+    }
+    if (/^\/mentalist\/?$/.test(pathname)) return {page:'catalog',season:0};
+  }
   const match = /^watch\/(\d+)\/(\d+)$/.exec(hash);
   const start = /^s(\d+)e(\d+)$/.exec(platform.start || '');
   const route = match || (hash.startsWith('tgWebApp') || !hash ? start : null);
   const item = route && episodeById.get(episodeId(route[1],route[2]));
   return { page:item || hash === 'watch' ? 'watch' : ['catalog','settings'].includes(hash) ? hash : 'home', item };
 }
+const homeMetadata = {
+  title:'Менталист — сезоны и эпизоды | Konfoly',
+  description:'Konfoly — каталог сериала «Менталист» (The Mentalist, 2008–2015). Все 7 сезонов и 151 эпизод с описаниями, оценками и сохранением прогресса просмотра.'
+};
 function route() {
+  browserAddress = location.href;
   const next = chooseRoute();
   const switchedPage = next.page !== page;
   const changedEpisode = next.item && key(next.item) !== key(current);
@@ -85,8 +103,18 @@ function route() {
   if (next.page !== 'watch' && document.fullscreenElement === $('screen')) document.exitFullscreen().catch(()=>{});
   if (changedEpisode) pendingPosition = 0;
   if (next.item) current = next.item;
+  if (next.season != null) catalogSeason = next.season;
   page = next.page;
-  window.konfolyMetricaPage?.(page);
+  const canonical = document.querySelector('link[rel="canonical"]');
+  const meta = document.querySelector('meta[name="description"]');
+  const publicPath = page === 'watch' ? episodePath(current)
+    : page === 'catalog' ? mentalistPages.path(catalogSeason) : '/';
+  const metadata = page === 'watch' ? mentalistPages.metadata(current.season,current)
+    : page === 'catalog' ? mentalistPages.metadata(catalogSeason) : homeMetadata;
+  document.title = metadata.title;
+  meta.content = metadata.description;
+  canonical.href = new URL(publicPath,canonical.href).href;
+  window.konfolyMetricaPage?.(page,location.pathname === publicPath ? publicPath : null);
   for (const panel of document.querySelectorAll('.page')) {
     panel.hidden = panel.id !== page;
     if (switchedPage && !panel.hidden) panel.animate?.(
@@ -94,7 +122,7 @@ function route() {
       {duration:matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 330,easing:'cubic-bezier(.22,1,.36,1)'});
   }
   for (const link of document.querySelectorAll('.navigation a')) {
-    if (link.hash === '#' + page) link.setAttribute('aria-current','page');
+    if (link.dataset.localRoute === page) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   }
   platform.showBack(page !== 'home');
@@ -105,13 +133,19 @@ function route() {
   persist();
   window.scrollTo(0,0);
 }
+function navigate(path) {
+  const url = new URL(path,location.origin);
+  url.search = location.search;
+  if (url.href === location.href) return;
+  history.pushState(null,'',url);
+  route();
+}
 function openEpisode(item, time = 0) {
   clearMedia();
   current = item;
   pendingPosition = time;
-  history.pushState(null,'',episodeHash(item));
-  route();
-
+  if (location.pathname === episodePath(item) && !location.hash) route();
+  else navigate(episodePath(item));
 }
 function refreshHome() {
   const last = latestView();
@@ -134,15 +168,6 @@ function continueViewing() {
 $('continue-button').onclick = continueViewing;
 $('watch-continue').onclick = continueViewing;
 $('catalog-continue').onclick = continueViewing;
-function seasonButtons() {
-  const tiles = counts.map((count,index) => {
-    const button = make('button','season-tile');
-    button.append(make('strong',null,String(index + 1).padStart(2,'0')),make('small',null,'Сезон · ' + count));
-    button.onclick = () => { catalogSeason = index + 1; location.hash = 'catalog'; platform.tap(); };
-    return button;
-  });
-  $('home-seasons').replaceChildren(...tiles);
-}
 function classification(item) {
   const base = importanceCatalog[key(item)];
   const override = preferences.importance[key(item)];
@@ -154,12 +179,14 @@ function classification(item) {
   };
 }
 function renderCatalog() {
+  $('catalog-title').textContent = mentalistPages.metadata(catalogSeason).heading;
   const oldScroll = $('seasons').scrollLeft;
-  $('seasons').replaceChildren(...Array.from({length:8},(_,season) => {
-    const button = make('button',null,season ? season + ' сезон' : 'Все');
-    button.setAttribute('aria-pressed',season === catalogSeason);
-    button.onclick = () => { catalogSeason = season; renderCatalog(); platform.tap(); };
-    return button;
+  $('seasons').replaceChildren(...Array.from({length:counts.length + 1},(_,season) => {
+    const link = make('a','tonal',season ? season + ' сезон' : 'Все');
+    link.href = mentalistPages.path(season);
+    link.dataset.localRoute = '';
+    if (season === catalogSeason) link.setAttribute('aria-current','page');
+    return link;
   }));
   $('seasons').scrollLeft = oldScroll;
   renderSeasonRatings(catalogSeason);
@@ -188,7 +215,8 @@ function visibleTitle(item) {
 function episodeCard(item) {
   const card = make('article','episode-card');
   const link = make('a','episode-open');
-  link.href = episodeHash(item);
+  link.href = episodePath(item);
+  link.dataset.localRoute = '';
   link.setAttribute('aria-label','Открыть сезон ' + item.season + ', серия ' + item.episode);
   if (key(item) === key(current)) link.setAttribute('aria-current','true');
   const image = make('img','episode-image');
@@ -336,12 +364,13 @@ function renderWatch() {
   $('episode-description').textContent = current.description || '';
   renderEpisodeRatings(current);
   renderEpisodePlot(current);
-  $('share-link').href = episodeHash(current);
+  $('episode-season-link').href = mentalistPages.path(current.season);
+  $('share-link').href = episodePath(current);
   $('share-link').onclick = async event => {
     if (!navigator.clipboard?.writeText) return;
     event.preventDefault();
     try {
-      await navigator.clipboard.writeText(new URL(episodeHash(current),location.href).href);
+      await navigator.clipboard.writeText(new URL(episodePath(current),location.href).href);
       $('source-status').textContent = 'Ссылка на серию скопирована';
     } catch { $('source-status').textContent = 'Ссылку можно скопировать из адресной строки'; }
   };
@@ -625,7 +654,7 @@ for (const sheet of document.querySelectorAll('dialog')) sheet.addEventListener(
 platform.configure(() => {
   const sheet = document.querySelector('dialog[open]');
   if (sheet) sheet.close();
-  else location.hash = page === 'watch' ? 'catalog' : 'home';
+  else navigate(page === 'watch' ? mentalistPages.path(current.season) : '/');
 },applyTheme,telegram => {
   if (!location.hash || location.hash.startsWith('#tgWebApp')) route();
   else platform.showBack(page !== 'home');
@@ -655,9 +684,21 @@ platform.configure(() => {
   });
 });
 document.querySelector('.skip').onclick = event => {event.preventDefault();$('content').focus()};
-window.addEventListener('hashchange',route);
+document.addEventListener('click',event => {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest('a[data-local-route]');
+  if (!link) return;
+  event.preventDefault();
+  if (link.closest('.season-tiles, .segments')) platform.tap();
+  navigate(link.getAttribute('href'));
+});
+function browserRoute() {
+  if (location.href === browserAddress) return;
+  route();
+}
+window.addEventListener('popstate',browserRoute);
+window.addEventListener('hashchange',browserRoute);
 applyTheme();
 applyNewYear();
 renderSeriesRatings();
-seasonButtons();
 route();
