@@ -42,7 +42,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show)),...indexedShows];
   const shows = new Map([mentalist,breakingBad,interns,...indexedShows,...imported].map(show => [show.id,show]));
   const searchPreviews = new Map();
-  const showPath = show => show === mentalist ? '#home' : '#series/' + show.id;
+  const showPath = show => '#series/' + show.id;
   const seasonPath = (show,season) => showPath(show) + '/season/' + (season || 'all');
   const watchPath = (show,item) => showPath(show) + '/' + item.season + '/' + item.episode;
   const progressKey = show => 'konfoly-progress:' + show.id;
@@ -117,12 +117,16 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     element.rel = 'noopener noreferrer';
     return element;
   }
-  function showPosterSources(show) {
+  function showPosterSources(show,thumbnail=false) {
     const identity = seriesIdentity(show);
     const editorial = seriesEditorial[show.mazeId ?? identity?.mazeId];
+    const image = show.image || editorial?.image;
+    const original = editorial?.posterOriginal;
+    const options = {thumbnail};
+    const artwork = thumbnail ? [image,original] : [original,image];
     return [...new Set([
-      ...posterSources(editorial?.posterOriginal),
-      ...posterSources(show.image || editorial?.image,show.imdb?.id || identity?.imdbId)
+      ...artwork.flatMap(address => posterSources(address,undefined,options)),
+      ...posterSources('',show.imdb?.id || identity?.imdbId,options)
     ])];
   }
   function loadPoster(image,addresses,onMissing) {
@@ -135,14 +139,15 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     image.addEventListener('error',next);
     next();
   }
-  function poster(show) {
+  function poster(show,eager=false) {
     const element = make('div','library-poster');
     const image = make('img');
     image.alt = '';
-    image.loading = 'lazy';
+    image.loading = eager ? 'eager' : 'lazy';
+    if (eager) image.fetchPriority = 'high';
     image.decoding = 'async';
     element.append(image);
-    loadPoster(image,showPosterSources(show),() => { element.textContent = show.title; });
+    loadPoster(image,showPosterSources(show,true),() => { element.textContent = show.title; });
     return element;
   }
   function findEpisode(show,season,episode) {
@@ -163,6 +168,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     else if ((boot && !start) || hash === 'library' || hash === 'library/search') return {page:'library',focusSearch:hash === 'library/search'};
     const parts = /^series\/([a-z0-9-]+)(?:\/season\/(all|\d+)|\/(\d+)\/(\d+))?$/.exec(hash);
     const show = parts && (shows.get(parts[1]) || searchPreviews.get(parts[1]));
+    if (show === mentalist && !parts[2] && !parts[3]) return {page:'home'};
     if (!show || show === mentalist) return parts ? {page:'library'} : null;
     if (!show.episodes) {
       const cached = cachedEpisodes(catalogKey(show));
@@ -212,8 +218,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     writeLocal(activeKey,active);
   }
   function activeSeries() {
-    const show = shows.get(active?.id) || searchPreviews.get(active?.id);
-    return show === mentalist ? null : show;
+    return shows.get(active?.id) || searchPreviews.get(active?.id);
   }
   function activeEpisode(show) {
     if (!show.episodes) {
@@ -232,20 +237,20 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const show = activeSeries();
     if (element.hasAttribute('data-library-nav')) return ['home','library'].includes(route.page) || !!(route.show && route.season == null && !route.episode);
     if (element.hasAttribute('data-catalog-nav')) {
-      const season = route.episode?.season ?? route.season ?? active?.season ?? (show && activeEpisode(show).season);
-      element.href = show ? seasonPath(show,season) : '#catalog';
+      const season = route.episode?.season ?? route.season ?? active?.season ?? (show && show !== mentalist && activeEpisode(show)?.season);
+      element.href = show === mentalist ? '#catalog' : show ? seasonPath(show,season) : '#library/search';
       return route.page === 'catalog' || route.season != null;
     }
     if (element.hasAttribute('data-watch-nav')) {
-      const item = route.episode || (show && activeEpisode(show));
-      element.href = show && item ? watchPath(show,item) : '#watch';
+      const item = route.episode || (show && show !== mentalist && activeEpisode(show));
+      element.href = show === mentalist ? '#watch' : item ? watchPath(show,item) : '#library/search';
       return route.page === 'watch' || !!route.episode;
     }
     return null;
   }
   function openActiveSources() {
     const show = activeSeries();
-    if (!show) return false;
+    if (!show || show === mentalist) return false;
     openSourcesFor = watchPath(show,activeEpisode(show));
     location.hash = openSourcesFor;
     return true;
@@ -307,7 +312,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (show.image === image) setShowPalette(card,hue,chroma);
     });
   }
-  function showCard(show,themeElement,compact=false) {
+  function showCard(show,themeElement,{compact=false,eager=false}={}) {
     const tile = link(undefined,showPath(show),'library-tile');
     const copy = make('span','library-tile-copy');
     const name = seriesDisplayTitle(show);
@@ -323,7 +328,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       if (facts) copy.append(make('span','muted',facts));
     }
     colorCard(show,themeElement || tile);
-    tile.append(poster(show),copy);
+    tile.append(poster(show,eager),copy);
     return tile;
   }
   async function tvmaze(path,signal) {
@@ -472,7 +477,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const savedShows = libraryShows().filter(show => isSaved(show,states[show.id],pinned))
         .sort((first,second) => favoriteAt(second) - favoriteAt(first));
       let focusButton;
-      const cards = savedShows.map(show => {
+      const cards = savedShows.map((show,index) => {
         const card = make('div','library-saved-card');
         const name = seriesDisplayTitle(show);
         const selected = favoriteAt(show) > 0;
@@ -513,7 +518,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         if (show.id === focusId) focusButton = favorite;
         const actions = make('div','library-card-actions');
         actions.append(cardScore(show,card),favorite,remove);
-        card.append(showCard(show,card,true),actions);
+        card.append(showCard(show,card,{compact:true,eager:index < 4}),actions);
         return card;
       });
       grid.replaceChildren(...cards);

@@ -249,3 +249,14 @@ test('poster URLs prefer originals and upgrade artwork saved by older versions',
   assert.deepEqual(posterSources('assets/mentalist-poster.webp'),['assets/mentalist-poster.webp']);
   assert.deepEqual(posterSources('', 'unknown'),[]);
 });
+
+test('catalog thumbnails try smaller artwork before the original', () => {
+  const medium = 'https://static.tvmaze.com/uploads/images/medium_portrait/501/1253519.jpg';
+  const original = 'https://static.tvmaze.com/uploads/images/original_untouched/501/1253519.jpg';
+  const metahub = 'https://images.metahub.space/poster/';
+  const sizes = ['medium','small','large'].map(size => metahub + size + '/tt0434665/img');
+  const options = {thumbnail:true};
+  assert.deepEqual(posterSources(original,undefined,options),[medium,original]);
+  assert.deepEqual(posterSources(sizes[2],'tt0434665',options),sizes);
+  assert.deepEqual(posterSources('', 'tt0434665',options),sizes);
+});
