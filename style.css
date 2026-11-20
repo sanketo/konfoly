@@ -1,10 +1,10 @@
-@import url("player.css?v=20");
+@import url("player.css?v=21");
 :root {
  color-scheme:dark;
- --surface:#151315; --container:#211e22; --high:#2e292e; --text:#f4edf0; --muted:#cbbfc5;
- --primary:#ffb3b1; --on-primary:#5c171c; --tonal:#4c2d35; --on-tonal:#ffdadc;
- --outline:#a7959e; --error:#ffb4ab; --key:#f9db9a; --on-key:#352100; --scrim:#000a;
- --home-glow:#9439531a;
+ --surface:#100606; --container:#1e0f0f; --high:#331d1d; --text:#f7ebeb; --muted:#d1bbba;
+ --primary:#9c252e; --on-primary:#fff6f6; --tonal:#561d1e; --on-tonal:#fed7d4;
+ --outline:#b49290; --error:#ffb4ab; --key:#f9db9a; --on-key:#352100; --scrim:#000a;
+ --home-glow:#bb6d6b1a;
  --r-small:12px; --r-medium:20px; --r-large:26px; --r-pill:999px; --space:clamp(16px,3vw,40px);
  --spring:cubic-bezier(.2,.9,.3,1.18); --safe-bottom:max(env(safe-area-inset-bottom),var(--tg-bottom,0px));
  --safe-top:max(env(safe-area-inset-top),var(--tg-top,0px));

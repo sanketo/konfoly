@@ -28,7 +28,7 @@ const preferences = {
   selected:mediaProviders.some(provider => provider.id === saved.selected) ? saved.selected : 'native',
   voice:['ТВ3','Universal Russia','TVShows'].includes(saved.voice) ? saved.voice : 'ТВ3',
   quality:saved.quality === 'hd' ? 'hd' : 'fullhd',
-  rate:[.75,1,1.25,1.5,1.75,2].includes(saved.rate) ? saved.rate : 1,
+  rate:playbackRates.includes(saved.rate) ? saved.rate : 1,
   volume:typeof saved.volume === 'number' && saved.volume >= 0 && saved.volume <= 1 ? saved.volume : 1
 };
 

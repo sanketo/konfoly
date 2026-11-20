@@ -53,3 +53,13 @@ async function requestCinemaFullscreen(element) {
   }
   return true;
 }
+
+const playbackRates = [.75,1,1.1,1.25,1.5,1.75,2];
+
+function seekTimeAtPointer(duration,offset,width) {
+  const thumbRadius = 6;
+  const trackWidth = width - 2 * thumbRadius;
+  if (!Number.isFinite(duration) || duration <= 0 || trackWidth <= 0) return null;
+  const fraction = (offset - thumbRadius) / trackWidth;
+  return Math.max(0,Math.min(1,fraction)) * duration;
+}
