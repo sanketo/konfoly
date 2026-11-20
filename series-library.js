@@ -1576,13 +1576,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   }
   const posterColors = new Map();
   function posterPalette(url) {
-    url = posterSources(url).at(-1) || url;
+    // Remote artwork can display without granting canvas access.
+    if (typeof url !== 'string' || !url.startsWith('assets/')) return Promise.resolve(null);
     if (posterColors.has(url)) return posterColors.get(url);
     const sample = new Promise(resolve => {
       const image = new Image();
       const timer = setTimeout(() => resolve(null),6000);
       function done(palette) { clearTimeout(timer); resolve(palette); }
-      image.crossOrigin = 'anonymous';
       image.onerror = () => done(null);
       image.onload = () => {
         try {

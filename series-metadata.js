@@ -140,6 +140,7 @@ const seriesMetadata = (() => {
   const logoChecks = new Map();
   function transparentLogo(address) {
     if (address.startsWith('assets/')) return Promise.resolve(true);
+    if (commonsFile(address)) return Promise.resolve(false);
     if (!logoChecks.has(address)) {
       logoChecks.set(address,new Promise(resolve => {
         const logo = new Image();
@@ -404,14 +405,15 @@ const seriesMetadata = (() => {
   const kpRequest = (id,suffix,key,signal) => json('https://kinopoiskapiunofficial.tech/api/v2.2/films/' + id + suffix,
     keyLookupOptions(signal,key));
 
+  function commonsFile(address) {
+    try {
+      const url = new URL(address);
+      const match = /^\/wiki\/Special:(?:FilePath|Redirect\/file)\/(.+)$/i.exec(url.pathname);
+      return url.hostname === 'commons.wikimedia.org' && match ? 'File:' + decodeURIComponent(match[1]) : '';
+    } catch { return ''; }
+  }
   async function commonsThumbnails(addresses,signal) {
-    const files = addresses.flatMap(address => {
-      try {
-        const url = new URL(address);
-        const match = /^\/wiki\/Special:FilePath\/(.+)$/i.exec(url.pathname);
-        return url.hostname === 'commons.wikimedia.org' && match ? ['File:' + decodeURIComponent(match[1])] : [];
-      } catch { return []; }
-    });
+    const files = [...new Set(addresses.map(commonsFile).filter(Boolean))];
     if (!files.length) return [];
     const query = new URL('https://commons.wikimedia.org/w/api.php');
     query.search = new URLSearchParams({action:'query',format:'json',formatversion:'2',origin:'*',
@@ -442,18 +444,19 @@ const seriesMetadata = (() => {
     const key = apiKey();
     const jobs = [];
     const needsGenres = !showGenres(show).length && !Object.hasOwn(data,'mazeGenres');
-    const plotJob = (needsGenres || (!curatedPlot(show) && !fresh(data.mazePlotCheckedAt)))
+    const canLoadCinemetaGenres = validImdb(show.imdb?.id) && !fresh(data.cinemetaGenresCheckedAt);
+    const plotJob = ((needsGenres && !canLoadCinemetaGenres) || (!curatedPlot(show) && !fresh(data.mazePlotCheckedAt)))
       ? loadMazePlot(show,signal,onChange).catch(() => {}) : null;
     if (plotJob) jobs.push(plotJob);
-    if (!showGenres(show).length && validImdb(show.imdb?.id) && !fresh(data.cinemetaGenresCheckedAt)) {
+    if (!showGenres(show).length && canLoadCinemetaGenres) {
       jobs.push((async () => {
-        await plotJob;
-        if (signal.aborted || showGenres(show).length) return;
-        const cinemetaGenres = localizedGenres(await loadCinemetaGenres(show.imdb.id,signal));
+        const genres = await loadCinemetaGenres(show.imdb.id,signal).catch(() => null);
+        const cinemetaGenres = localizedGenres(genres);
         if (signal.aborted) return;
-        save(show,{cinemetaGenres,cinemetaGenresCheckedAt:Date.now()});
+        if (genres) save(show,{cinemetaGenres,cinemetaGenresCheckedAt:Date.now()});
         if (cinemetaGenres.length) onChange();
-      })().catch(() => {}));
+        else if (!plotJob && needsGenres) await loadMazePlot(show,signal,onChange).catch(() => {});
+      })());
     }
     if (!ageRating(show) && !fresh(data.appleAgeCheckedAt)) {
       jobs.push((async () => {
@@ -513,6 +516,15 @@ const seriesMetadata = (() => {
         onChange();
       })());
     }
+    const cachedCommons = [...(Array.isArray(data.commonsLogos) ? data.commonsLogos : []),data.commonsLogo,
+      ...(Array.isArray(data.wikiLogos) ? data.wikiLogos : [])];
+    if (data.wikiArtVersion !== 2 && cachedCommons.some(commonsFile)) {
+      jobs.push(commonsThumbnails(cachedCommons,signal).then(logos => {
+        if (signal.aborted) return;
+        save(show,{wikiArtVersion:2,wikiLogos:[...new Set([...logos,...(data.wikiLogos || [])])]});
+        if (logos.length) onChange();
+      }).catch(() => {}));
+    }
     if (!fresh(data.wikiCheckedAt) || !fresh(data.wikiArtCheckedAt) ||
         (!ageRating(show) && validImdb(show.imdb?.id) && !Object.hasOwn(data,'wikiAgeRating'))) {
       jobs.push((async () => {
@@ -528,7 +540,8 @@ const seriesMetadata = (() => {
           if (signal.aborted) return;
           const logos = outcomes.flatMap(result => result.status === 'fulfilled' ? result.value : []);
           if (outcomes.some(result => result.status === 'fulfilled')) {
-            save(show,{wikiLogos:logos,wikiArtCheckedAt:Date.now()});
+            if (outcomes[0].status === 'fulfilled') save(show,{wikiArtVersion:2});
+            save(show,{wikiLogos:[...new Set([...logos,...(Array.isArray(data.wikiLogos) ? data.wikiLogos : [])])],wikiArtCheckedAt:Date.now()});
             if (logos.length) onChange();
           }
         });
