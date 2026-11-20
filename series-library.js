@@ -1087,6 +1087,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const nextSeasonStatus = make('p','muted');
     nextSeasonStatus.setAttribute('role','status');
     const progressive = !season && show.partialCatalog;
+    let seasonLoadFailed = false;
     const unloadedSeason = () => {
       const loaded = new Set(episodes.map(item => item.season));
       return seasonsFor(show).find(number => !loaded.has(number));
@@ -1134,7 +1135,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     };
     async function loadNextSeason() {
       const number = unloadedSeason();
-      if (!number) return;
+      if (!number || nextSeason.disabled) return;
       const original = shows.get(show.id) || searchPreviews.get(show.id);
       const signal = metadataSession.signal;
       const controller = new AbortController();
@@ -1149,6 +1150,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           preferredSeason:number,seasonOnly:true,onSeasons:() => {}
         })).episodes;
         if (signal.aborted) return;
+        seasonLoadFailed = false;
         rememberSeason(original,number,added);
         visibleLimit += pageSize;
         episodes.push(...added);
@@ -1159,7 +1161,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         nextSeason.hidden = !unloadedSeason();
         nextSeasonStatus.textContent = 'Загружено сезонов · ' + new Set(episodes.map(item => item.season)).size + ' из ' + seasonsFor(show).length;
       } catch {
-        if (!signal.aborted) nextSeasonStatus.textContent = 'Не удалось загрузить сезон ' + number + '. Можно повторить или выбрать другой сезон.';
+        if (!signal.aborted) {
+          seasonLoadFailed = true;
+          nextSeasonStatus.textContent = 'Не удалось загрузить сезон ' + number + '. Можно повторить или выбрать другой сезон.';
+        }
       } finally {
         clearTimeout(timer);
         signal.removeEventListener('abort',abort);
@@ -1177,6 +1182,18 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const episodeSource = episodes.find(item => item.source?.startsWith('https://en.wikipedia.org/wiki/'))?.source;
     if (episodeSource) section.append(external('Список эпизодов · Википедия',episodeSource));
     $('series').replaceChildren(section);
+    if (!season) {
+      let previousY = window.scrollY;
+      window.addEventListener('scroll',() => {
+        const y = window.scrollY;
+        const movedDown = y > previousY;
+        previousY = y;
+        const viewport = document.scrollingElement;
+        if (!movedDown || !viewport || y + viewport.clientHeight < viewport.scrollHeight - 2) return;
+        if (!more.hidden) more.click();
+        else if (progressive && !seasonLoadFailed && !nextSeason.hidden) nextSeason.click();
+      },{passive:true,signal:metadataSession.signal});
+    }
     const initial = episodes.slice(0,pageSize);
     hydrate(show,update,status,initial);
     void seriesMetadata.translateIfReady(show,initial,metadataSession.signal,update,true);
