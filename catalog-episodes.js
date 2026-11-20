@@ -10,7 +10,7 @@ function cachedEpisodes(mazeId) {
   return {episodes:undefined,savedAt:0};
 }
 
-function rememberEpisodes(mazeId,episodes) {
+function rememberEpisodes(mazeId,episodes,seasons) {
   const cache = readLocal(cacheKey);
   if (episodes.length < (cachedEpisodes(mazeId).episodes?.length || 0)) return;
   const compact = episodes.map(({season,episode,title,mazeId,airdate,image,runtime,source}) =>
@@ -18,7 +18,7 @@ function rememberEpisodes(mazeId,episodes) {
   if (JSON.stringify(compact).length > 200000) return;
   const others = Object.entries(cache).filter(([id]) => id !== String(mazeId))
     .sort((a,b) => b[1]?.savedAt - a[1]?.savedAt).slice(0,7);
-  writeLocal(cacheKey,Object.fromEntries([[String(mazeId),{episodes:compact,savedAt:Date.now()}],...others]));
+  writeLocal(cacheKey,Object.fromEntries([[String(mazeId),{episodes:compact,savedAt:Date.now(),seasons}],...others]));
 }
 
 export {cachedEpisodes,rememberEpisodes};

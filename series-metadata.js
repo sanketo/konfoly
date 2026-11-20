@@ -499,7 +499,8 @@ const seriesMetadata = (() => {
         onChange();
       })());
     }
-    if ((!fresh(data.mazeCheckedAt) || !data.mazeIds) && show.mazeId && show.episodes && show.id !== 'interns') {
+    if ((!fresh(data.mazeCheckedAt) || !data.mazeIds) && show.mazeId && show.episodes?.length && show.episodes.length <= 200 &&
+        !show.partialCatalog && show.id !== 'interns') {
       jobs.push((async () => {
         const rows = await json('https://api.tvmaze.com/shows/' + show.mazeId + '/episodes',{signal});
         if (signal.aborted) return;

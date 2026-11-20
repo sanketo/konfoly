@@ -23,14 +23,14 @@ async function mediaWiki(parameters,signal) {
 
 async function guidePage(article,signal) {
   const name = article.replace(/\s+\([^()]+\)$/,'');
-  const candidates = [...new Set([name,article].map(title => 'List of ' + title + ' episodes'))];
+  const candidates = [...new Set([name,article].flatMap(title => ['List of ' + title + ' episodes','Lists of ' + title + ' episodes']))];
   const {query} = await mediaWiki({action:'query',titles:article,redirects:'1',prop:'links',
     pltitles:candidates.join('|')},signal);
   const linkedGuide = query?.pages?.[0]?.links?.[0]?.title;
   const root = linkedGuide || article;
   const {parse} = await mediaWiki({action:'parse',page:root,redirects:'1',prop:'sections'},signal);
   const fromSections = ({title,sections}) => sections.flatMap(section => {
-    const number = Number(/^Season\s+(\d+)(?:\s|$)/i.exec(section.line)?.[1]);
+    const number = Number(/^Season\s+(\d+)(?=\s|[:–—-]|$)/i.exec(section.line)?.[1]);
     return number > 0 && /^\d+$/.test(section.index) ? [[number,{page:title,index:section.index}]] : [];
   });
   const sections = new Map();
@@ -38,7 +38,7 @@ async function guidePage(article,signal) {
   if (!sections.size && linkedGuide) {
     const {query:linked} = await mediaWiki({action:'query',titles:parse.title,prop:'links',plnamespace:'0',pllimit:'max'},signal);
     const pages = (linked?.pages?.[0]?.links || []).map(link => link.title).filter(title =>
-      title.startsWith(parse.title + ' (season')).slice(0,10);
+      candidates.some(candidate => title.startsWith(candidate + ' (season'))).slice(0,10);
     const outcomes = await Promise.allSettled(pages.map(page => mediaWiki({action:'parse',page,prop:'sections'},signal)));
     for (const outcome of outcomes) if (outcome.status === 'fulfilled') {
       for (const [number,section] of fromSections(outcome.value.parse)) sections.set(number,section);
@@ -58,13 +58,15 @@ function readSeason(markup,season,source,singleSeason) {
   for (const table of document.querySelectorAll('table.wikiepisodetable')) {
     const headers = [...table.querySelectorAll('tr:first-child > th')];
     const column = headers.findIndex(header => /No\.\s*in\s*season/i.test(header.textContent));
+    const originalTitle = [...table.querySelectorAll('tr:first-child > th b')]
+      .some(header => /original.*titles?/i.test(header.textContent));
     const numberColumn = column < 0 && singleSeason ? headers.findIndex(header => /^No\./i.test(header.textContent.trim())) : column;
     if (numberColumn < 0) continue;
     for (const row of table.querySelectorAll('tr.vevent')) {
       const number = row.cells[numberColumn]?.textContent.trim();
       const summary = row.querySelector('.summary');
       summary?.querySelectorAll('sup.reference').forEach(node => node.remove());
-      const title = summary?.textContent.trim().replace(/^"|"$/g,'');
+      const title = (originalTitle ? summary?.querySelector('b') || summary : summary)?.textContent.trim().replace(/^"|"$/g,'');
       if (!/^[1-9]\d*$/.test(number || '') || !title) continue;
       const episode = Number(number);
       const airdate = row.querySelector('.dtstart')?.textContent.trim();
@@ -79,10 +81,14 @@ function readSeason(markup,season,source,singleSeason) {
 
 const guides = new Map();
 
-async function loadWikiEpisodes(article,signal,onSeasons,requestedSeason) {
+async function loadWikiEpisodes(article,signal,onSeasons,requestedSeason,{directoryOnly=false}={}) {
   const sections = guides.get(article) || await guidePage(article,signal);
   guides.set(article,sections);
   const seasons = [...sections.keys()].sort((a,b) => a-b);
+  if (directoryOnly && seasons.length >= 12) {
+    onSeasons(0,0,seasons);
+    return [];
+  }
   const pending = [...sections].filter(([number]) => !requestedSeason || number === requestedSeason);
   if (!pending.length) throw Error('Сезон отсутствует в списке эпизодов.');
   const total = pending.length;
