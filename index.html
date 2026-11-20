@@ -27,7 +27,7 @@
 <section class="library-add-panel">
 <h2>Поиск сериалов</h2>
 <form id="library-add-form" class="library-add">
-<input type="search" required placeholder="Название сериала" aria-label="Название сериала">
+<input class="ym-disable-keys" type="search" required placeholder="Название сериала" aria-label="Название сериала">
 <button type="submit" class="filled">Найти</button>
 </form>
 <p id="library-add-status" class="muted" role="status"></p>
@@ -65,7 +65,7 @@
 <div class="rating-row season-rating-row" id="season-rating-row" hidden><div id="season-rating" class="rating-list"></div><button id="rate-season" class="rating-action">Моя оценка</button></div>
 <div class="catalog-toolbar">
 <div id="seasons" class="segments" role="group" aria-label="Сезон"></div>
-<div class="filters"><label class="search"><span class="search-icon" aria-hidden="true"></span><input id="search" type="search" placeholder="Номер или название" aria-label="Поиск эпизодов"></label>
+<div class="filters"><label class="search"><span class="search-icon" aria-hidden="true"></span><input class="ym-disable-keys" id="search" type="search" placeholder="Номер или название" aria-label="Поиск эпизодов"></label>
 <label class="chip"><input id="important-filter" type="checkbox"> Сюжетно важные</label>
 <label class="chip"><input id="unwatched-filter" type="checkbox"> Непросмотренные</label><button id="toggle-important" class="chip importance-toggle" type="button" aria-pressed="false">Скрыть пометки</button></div>
 </div>
@@ -76,8 +76,8 @@
 <div class="section-title watch-heading"><div><p id="episode-number" class="eyebrow"></p><h1 id="episode-title" class="page-title"></h1><p id="episode-title-original" class="muted episode-original" lang="en" hidden></p></div><button id="open-sources" class="tonal">Источники</button></div>
 <button id="watch-continue" class="resume-action tonal" hidden>Продолжить просмотр</button>
 <div id="watch-preflight" class="watch-preflight" hidden></div>
-<div class="watch-stage"><canvas class="video-ambient" width="48" height="27" aria-hidden="true"></canvas><div id="screen" class="screen"></div></div>
-<div class="watch-status"><span id="source-status" role="status"></span><span id="quality-status"></span></div>
+<div class="watch-stage ym-hide-content"><canvas class="video-ambient" width="48" height="27" aria-hidden="true"></canvas><div id="screen" class="screen"></div></div>
+<div class="watch-status ym-hide-content"><span id="source-status" role="status"></span><span id="quality-status"></span></div>
 <div class="watch-track-controls"><div id="watch-dub" hidden></div><div id="watch-audio" hidden></div></div>
 <div class="watch-nav"><button id="previous" class="tonal">← Предыдущая</button><button id="next" class="tonal">Следующая →</button></div>
 <div class="watch-description"><div class="rating-row"><div id="episode-ratings" class="rating-list"></div><button id="rate-episode" class="rating-action">Моя оценка</button></div><p id="episode-description" class="episode-description"></p><div class="watch-actions"><a id="share-link" href="#watch">Ссылка на серию</a><button id="mark-watched" class="tonal">Отметить просмотренной</button></div><p class="watch-shortcuts muted"><kbd>←</kbd> <kbd>→</kbd> Перемотка на 10 секунд <span>·</span> <kbd>Пробел</kbd> Пауза <span>·</span> Удержание 2×</p><p class="watch-touch-hint muted">Удерживай левый или правый край видео, чтобы включить 2×.</p></div>
@@ -94,29 +94,29 @@
 <template id="integration-settings-layout">
 <div class="settings-grid">
 <section class="settings-card"><h2>Русские названия и логотипы</h2>
-<form id="kinopoisk-key-form" class="source-form">
-<label>Ключ Kinopoisk API Unofficial <input id="kinopoisk-key" type="password" autocomplete="off" placeholder="Ключ API"></label>
+<form id="kinopoisk-key-form" class="source-form ym-hide-content">
+<label>Ключ Kinopoisk API Unofficial <input class="ym-disable-keys" id="kinopoisk-key" type="password" autocomplete="off" placeholder="Ключ API"></label>
 <p class="muted">Загружает русские названия, описания и логотипы, когда они есть в каталоге. Ключ действует в этой вкладке. Очисти поле и сохрани, чтобы отключить новые запросы.</p>
 <button class="tonal" type="submit">Сохранить ключ</button>
 <p id="kinopoisk-key-status" class="muted" role="status"></p>
 </form>
-<form id="tmdb-token-form" class="source-form">
-<label>Токен чтения TMDB <input id="tmdb-token" type="password" autocomplete="off"></label>
+<form id="tmdb-token-form" class="source-form ym-hide-content">
+<label>Токен чтения TMDB <input class="ym-disable-keys" id="tmdb-token" type="password" autocomplete="off"></label>
 <p class="muted">TMDB добавляет логотипы сериалов. Сначала ищем русский вариант. Токен действует в этой вкладке.</p>
 <button type="submit" class="tonal">Сохранить токен</button>
 <p id="tmdb-token-status" class="muted" role="status"></p>
 </form>
 <p class="muted" lang="en">This product uses the <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> API but is not endorsed or certified by TMDB.</p></section>
 <section class="settings-card"><h2>Общий видеоисточник</h2>
-<form id="episode-endpoint-form" class="source-form">
-<label>HTTPS-адрес API <input id="episode-endpoint-url" type="text" inputmode="url" placeholder="https://…" autocomplete="off"></label>
+<form id="episode-endpoint-form" class="source-form ym-hide-content">
+<label>HTTPS-адрес API <input class="ym-disable-keys" id="episode-endpoint-url" type="text" inputmode="url" placeholder="https://…" autocomplete="off"></label>
 <p class="muted">Один адрес на все сериалы. Сайт передаёт IMDb, TVmaze, сезон и серию. API принимает номер серии и возвращает прямое видео. Для нескольких озвучек можно вернуть <code>streams</code> с полями <code>url</code> и <code>voice</code>.</p>
 <button type="submit" class="tonal">Сохранить адрес</button>
 <p id="episode-endpoint-status" role="status" class="muted"></p>
 </form></section>
 <section class="settings-card"><h2>Дополнение Stremio</h2>
-<form id="stremio-source-form" class="source-form">
-<label>Ссылка на дополнение <input id="stremio-source-url" type="text" inputmode="url" placeholder="https://…/manifest.json" autocomplete="off"></label>
+<form id="stremio-source-form" class="source-form ym-hide-content">
+<label>Ссылка на дополнение <input class="ym-disable-keys" id="stremio-source-url" type="text" inputmode="url" placeholder="https://…/manifest.json" autocomplete="off"></label>
 <p class="muted">Подключается один раз для всех сериалов с IMDb ID. Наш плеер принимает прямые MP4 и HLS из дополнения. Очисти поле, чтобы отключить его.</p>
 <button class="tonal" type="submit">Сохранить дополнение</button>
 <p id="stremio-source-status" class="muted" role="status"></p>
@@ -126,7 +126,7 @@
 </section>
 <footer>konfoly <a href="https://www.tvmaze.com/shows/116/the-mentalist" target="_blank" rel="noopener noreferrer">Каталог и кадры · TVmaze ↗</a></footer>
 </main>
-<dialog id="sources-dialog" class="sheet" aria-labelledby="sources-title">
+<dialog id="sources-dialog" class="sheet ym-hide-content" aria-labelledby="sources-title">
 <div class="sheet-heading"><h2 id="sources-title">Источники</h2><form method="dialog"><button class="icon-button" aria-label="Закрыть">×</button></form></div>
 <div class="source-form native-settings">
 <div class="select-field"><label for="voice">Озвучка</label><select id="voice"><option>ТВ3</option><option value="Universal Russia">Universal</option><option>TVShows</option></select></div>
@@ -135,18 +135,18 @@
 <div id="provider-list" class="provider-list"></div>
 <form id="source-form" class="source-form">
 <div class="select-field"><label for="source-kind">Тип ссылки</label><select id="source-kind"><option value="video">Прямое видео</option><option value="embed">Разрешённый iframe</option></select></div>
-<label>HTTPS-адрес <input id="source-url" type="text" inputmode="url" placeholder="https://…" required></label>
+<label>HTTPS-адрес <input class="ym-disable-keys" id="source-url" type="text" inputmode="url" placeholder="https://…" required></label>
 <p class="muted">Для шаблона можно использовать {season} и {episode}. Иначе ссылка сохраняется для выбранной серии.</p>
 <button class="filled" type="submit">Сохранить и открыть</button>
 </form>
 <form id="alloha-form" class="source-form" hidden>
-<label>Ссылка для вставки Alloha <input id="alloha-url" type="text" inputmode="url" placeholder="https://…" required></label>
+<label>Ссылка для вставки Alloha <input class="ym-disable-keys" id="alloha-url" type="text" inputmode="url" placeholder="https://…" required></label>
 <p class="muted">Можно указать ссылку на весь сериал или шаблон с {season} и {episode}.</p>
 <button class="filled" type="submit">Сохранить и открыть Alloha</button>
 </form>
 <button id="select-episode-folder" type="button" class="tonal" hidden>Подключить папку серий</button>
-<input id="episode-folder" type="file" webkitdirectory hidden>
-<input id="file" type="file" accept="video/*,.mp4,.webm" hidden>
+<input class="ym-disable-keys" id="episode-folder" type="file" webkitdirectory hidden>
+<input class="ym-disable-keys" id="file" type="file" accept="video/*,.mp4,.webm" hidden>
 <p id="source-error" role="alert"></p>
 </dialog>
 <dialog id="details-dialog" class="sheet" aria-labelledby="details-title">

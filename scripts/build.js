@@ -12,7 +12,9 @@ const out = resolve(root,'dist');
 const sdk = new URL(telegramSdk);
 const metricaId = (process.env.KONFOLY_METRICA_ID ?? '114391998').trim();
 if (!/^(?:0|[1-9]\d{0,11})$/.test(metricaId)) throw Error('KONFOLY_METRICA_ID must be a numeric counter ID or 0');
-const metricaHosts = Number(metricaId) ? ['https://mc.yandex.ru'] : [];
+const metricaHosts = Number(metricaId)
+  ? ['https://mc.yandex.ru','https://mc.yandex.com','https://mc.webvisor.com','https://mc.webvisor.org'] : [];
+const metricaFrames = metricaHosts.length ? ['blob:',...metricaHosts] : [];
 const sourcePolicy = [
   "default-src 'self'", "base-uri 'none'", "object-src 'none'", "form-action 'self'",
   "script-src 'self' " + [sdk.origin + sdk.pathname,...(metricaHosts.length ? [...metricaHosts,'https://yastatic.net'] : [])].join(' '),
@@ -21,8 +23,8 @@ const sourcePolicy = [
   "img-src 'self' data: blob: https://static.tvmaze.com https://*.wikimedia.org https://image.tmdb.org https://avatars.mds.yandex.net https://avatars.yandex.net https://st.kp.yandex.net https://kinopoiskapiunofficial.tech " + [...cinemetaImages,...allowedOrigins.image,...metricaHosts].join(' '),
   "media-src 'self' blob: " + allowedOrigins.media.join(' '),
   "connect-src 'self' https://api.tvmaze.com https://*.wikidata.org https://*.wikipedia.org https://*.wikimedia.org https://api.themoviedb.org https://kinopoiskapiunofficial.tech " +
-    [cinemetaOrigin,translationOrigin,appleRatingsOrigin,...allowedOrigins.connect,...metricaHosts].join(' '),
-  'frame-src ' + (allowedOrigins.frame.join(' ') || "'none'")
+    [cinemetaOrigin,translationOrigin,appleRatingsOrigin,...allowedOrigins.connect,...metricaHosts,...metricaHosts.map(host => host.replace('https:','wss:'))].join(' '),
+  'frame-src ' + ([...allowedOrigins.frame,...metricaFrames].join(' ') || "'none'")
 ].map(value => value.trim()).join('; ');
 
 await mkdir(out,{recursive:true});

@@ -1184,7 +1184,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const search = make('label','search');
     const searchIcon = make('span','search-icon');
     searchIcon.setAttribute('aria-hidden','true');
-    const query = make('input');
+    const query = make('input','ym-disable-keys');
     query.type = 'search';
     query.placeholder = 'Номер или название';
     query.setAttribute('aria-label','Поиск эпизодов');
@@ -1359,7 +1359,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const quality = get('quality-status');
     const dub = get('watch-dub');
     const audio = get('watch-audio');
-    const sourceBox = make('dialog','sheet library-source');
+    const sourceBox = make('dialog','sheet library-source ym-hide-content');
     sourceBox.setAttribute('aria-label','Источники');
     const sourceHeading = make('div','sheet-heading');
     const closeSources = make('button','icon-button','×');
@@ -1396,11 +1396,11 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       };
     }
     const attachedFile = () => localEpisodeFolders.get(show.id)?.get(itemId);
-    const fileInput = make('input');
+    const fileInput = make('input','ym-disable-keys');
     fileInput.type = 'file';
     fileInput.accept = 'video/*,.mp4,.webm';
     fileInput.hidden = true;
-    const folderInput = make('input');
+    const folderInput = make('input','ym-disable-keys');
     folderInput.type = 'file';
     folderInput.hidden = true;
     const supportsFolder = 'webkitdirectory' in folderInput;
@@ -1430,7 +1430,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     function sourceField(label,description,kind,value) {
       const section = make('div','library-source-field');
       const form = make('form','library-add');
-      const input = make('input');
+      const input = make('input','ym-disable-keys');
       input.type = 'text';
       input.inputMode = 'url';
       input.required = true;
