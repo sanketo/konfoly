@@ -17,7 +17,7 @@
         queue.a = [];
         queue.l = Date.now();
         window.ym ||= queue;
-        window.ym(counter,'init',{defer:true,accurateTrackBounce:true,webvisor:false,clickmap:false,trackLinks:false});
+        window.ym(counter,'init',{defer:true,accurateTrackBounce:true,webvisor:true,clickmap:true,trackLinks:true});
         const script = document.createElement('script');
         script.async = true;
         script.src = 'https://mc.yandex.ru/metrika/tag.js?id=' + counter;
