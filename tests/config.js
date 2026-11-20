@@ -9,15 +9,47 @@ import {loadCinemetaSeries,searchCinemeta} from '../cinemeta.js';
 import {loadAppleAgeRating} from '../series-age-ratings.js';
 import {seekTimeAtPointer} from '../video-controls.js';
 import {posterSources,tvmazePoster} from '../series-posters.js';
-import topCatalog from '../data/top-series.json' with {type:'json'};
+import popularCatalog from '../data/popular-series.json' with {type:'json'};
+import {episodeAvailability,findCatalogShow} from '../catalog-model.js';
+import {auditSource,probeMedia} from '../scripts/probe-catalog-video.js';
 
-test('the top catalog contains 250 unique non-documentary series in source order', () => {
-  const {shows} = topCatalog;
+test('catalog sync selects 250 distinct scripted titles and accounts for availability', () => {
+  const {shows,counts} = popularCatalog;
   assert.equal(shows.length,250);
-  assert.equal(new Set(shows.map(show => show.imdb)).size,shows.length);
-  assert.ok(shows.every((show,index) => /^tt\d{5,12}$/.test(show.imdb) && show.title &&
-    show.genres.length && !show.genres.some(genre => /^documentary$/i.test(genre)) &&
-    (index === 0 || shows[index-1].sourceRank < show.sourceRank)));
+  assert.equal(new Set(shows.map(show => show.imdbId)).size,250);
+  assert.equal(new Set(shows.map(show => show.tmdbId)).size,250);
+  assert.equal(new Set(shows.map(show => show.showId)).size,250);
+  assert.ok(shows.every(show => show.title && show.year && Number.isFinite(show.popularity) &&
+    !show.genres.some(genre => /^(?:Documentary|Reality-TV|Talk-Show|Game-Show|News)$/i.test(genre)) &&
+    (['AVAILABLE','PARTIAL'].includes(show.availability) ? show.confirmed.length > 0 : !show.confirmed?.length)));
+  assert.equal(counts.matched + counts.added,250);
+  assert.equal(counts.available + counts.partial + counts.missingPlayer + counts.unverified,250);
+});
+
+test('matching prefers identifiers and rejects an identically named remake', () => {
+  const show = {id:'saved',imdbId:'tt1234567',tmdbId:1,title:'Легенда',original:'The Legend',years:'2010–2013'};
+  assert.equal(findCatalogShow([show],{tmdbId:1,title:'Adventure',year:2023}),show);
+  assert.equal(findCatalogShow([show],{title:'The Legend!',year:2010}),show);
+  assert.equal(findCatalogShow([show],{imdbId:'tt1234568',title:'The Legend',year:2010}),undefined);
+  assert.equal(findCatalogShow([show],{title:'The Legend',year:2022}),undefined);
+  assert.equal(episodeAvailability({availability:'PARTIAL',confirmed:['2:4']},{season:2,episode:4}),'AVAILABLE');
+  assert.equal(episodeAvailability({availability:'PARTIAL',confirmed:['2:4']},{season:2,episode:5}),'MISSING_PLAYER');
+});
+
+test('licensed source audit confirms actual file bytes and both configured alternatives', async () => {
+  const origins = ['https://video.example'];
+  const site = 'https://site.example';
+  const fetcher = async url => url.pathname === '/episodes.json'
+    ? Response.json({episodes:{'1:1':'https://video.example/fallback.mp4'}},{headers:{'Access-Control-Allow-Origin':site}})
+    : url.pathname.endsWith('/2.mp4') ? new Response('<html>missing</html>') : new Response('0000ftypmp42');
+  const source = {authorization:'Distribution agreement',video:'https://video.example/{season}/{episode}.mp4',
+    manifest:'https://video.example/episodes.json'};
+  const got = await auditSource({source,episodes:['1:1','1:2'],origins,site,fetcher});
+  assert.deepEqual(got.confirmedProviders,{'1:1':['video','manifest']});
+  assert.equal((await auditSource({source:{...source,authorization:''},episodes:['1:1'],origins,site,fetcher})).uncertain,true);
+  assert.equal(await probeMedia('https://video.example/a.m3u8',origins,{site,fetcher:async () =>
+    new Response('#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"\nsegment.ts',{headers:{'Access-Control-Allow-Origin':site}})}),false);
+  await assert.rejects(probeMedia('https://other.example/movie.mp4',origins,{site,fetcher}),/allowlist/);
 });
 
 test('imported Interns and the four-season edition map only on provider lookup', () => {

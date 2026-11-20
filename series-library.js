@@ -10,6 +10,7 @@ import {$, make} from './dom.js';
 import {bindPlaybackMemory, playbackTime, readPlaybackMemory, watchPlaybackHealth} from './video-progress.js';
 import {ratingBadge, setPersonalRatingButton} from './ratings.js';
 import {externalRatingData} from './ratings-data.js';
+import {integrationSettings} from './integrations.js';
 import {seriesImportance} from './series-importance.js';
 import {importanceLabels} from './importance.js';
 import {platform} from './platform.js';
@@ -18,7 +19,8 @@ import {mediaAddress} from './urls.js';
 import {bindVideoKeys, isMobileCinema, requestCinemaFullscreen} from './video-controls.js';
 import {createCinemaPlayer} from './player-ui.js';
 import {metricaPage,metricaGoal} from './metrica.js';
-import topCatalog from './data/top-series.json' with {type:'json'};
+import popularCatalog from './data/popular-series.json' with {type:'json'};
+import {availabilityLabels,catalogRecordId,episodeAvailability,findCatalogShow,sourceRevision} from './catalog-model.js';
 
 function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute}) {
   const mentalist = mentalistCatalog;
@@ -42,30 +44,40 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     return [];
   });
   const rankedShows = new Map();
+  const rankedRecords = new Map();
+  const alreadyInLibrary = new Set();
   const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show)),
     ...indexedShows,...rankedShows.values()];
   const shows = new Map([mentalist,breakingBad,interns,...indexedShows,...imported].map(show => [show.id,show]));
-  const knownByImdb = new Map(libraryShows().map(show => [show.imdb?.id || seriesIdentity(show)?.imdbId,show]));
-  const topShows = topCatalog.shows.map(entry => {
-    const existing = knownByImdb.get(entry.imdb);
-    if (existing) return existing;
-    const id = 'imdb-' + entry.imdb;
-    const show = {id,title:entry.title,years:entry.years,genres:entry.genres,imdb:{id:entry.imdb}};
-    rankedShows.set(id,show);
+  const knownShows = libraryShows().map(show => ({...show,imdbId:show.imdb?.id || seriesIdentity(show)?.imdbId}));
+  const popularShows = popularCatalog.shows.map(entry => {
+    const existing = findCatalogShow(knownShows,entry);
+    const id = existing?.id || entry.showId;
+    const show = shows.get(id) || {id,title:entry.title};
+    const {years,genres,tmdbId,imdbId,imdbScore,image,episodeCount,seasonCount} = entry;
+    const fields = {years,genres,tmdbId,image,episodeCount,seasonCount,
+      original:entry.originalTitle !== show.title ? entry.originalTitle : undefined,
+      imdb:imdbId ? {id:imdbId,score:imdbScore} : undefined};
+    for (const [name,value] of Object.entries(fields)) if (!show[name] && value != null) show[name] = value;
+    const configured = integrationSettings.seriesSources[id] || integrationSettings.seriesSources[catalogRecordId(entry)];
+    const verified = !entry.confirmed?.length || entry.sourceRevision === sourceRevision(configured);
+    rankedRecords.set(id,verified ? entry : {...entry,availability:'UNVERIFIED',confirmed:[],confirmedProviders:{}});
+    if (existing) alreadyInLibrary.add(id);
+    else rankedShows.set(id,show);
     shows.set(id,show);
+    if (!shows.has(catalogRecordId(entry))) shows.set(catalogRecordId(entry),show);
     return show;
   });
   const searchPreviews = new Map();
   let lastSearch;
-  let libraryTab;
-  let visibleTopCount = 30;
+  let visibleCatalogCount = 30;
   const showPath = show => '#series/' + show.id;
   const seasonPath = (show,season) => showPath(show) + '/season/' + (season || 'all');
   const watchPath = (show,item) => showPath(show) + '/' + item.season + '/' + item.episode;
   const progressKey = show => 'konfoly-progress:' + show.id;
   const historyKeyFor = show => 'konfoly-history:' + show.id;
   const episodeKey = item => item.season + ':' + item.episode;
-  const catalogKey = show => show.id.startsWith('imdb-') ? show.imdb.id : show.mazeId || show.imdb?.id;
+  const catalogKey = show => show.id.startsWith('imdb-') ? show.imdb.id : show.mazeId || show.imdb?.id || show.id;
   const formatEpisode = item => 'Сезон ' + item.season + ' · Серия ' + item.episode;
   const selectedEpisodes = new Map();
   const countPlural = new Intl.PluralRules('ru');
@@ -358,6 +370,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const facts = [show.preview ? showYears(show) : caption(show),seriesMetadata.ageRating(show)].filter(Boolean).join(' · ');
       if (facts) copy.append(make('span','muted',facts));
     }
+    const availability = availabilityLabels[episodeAvailability(rankedRecords.get(show.id))];
+    if (availability) copy.append(make('span','muted library-availability',availability));
     colorCard(show,themeElement || tile);
     tile.append(poster(show,eager),copy);
     return tile;
@@ -517,10 +531,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     feedback.textContent = '';
     undo.hidden = true;
     undo.onclick = null;
-    const recentTab = $('library-recent-tab');
-    const topTab = $('library-top-tab');
-    const topGrid = $('library-top-grid');
-    const moreTop = $('library-top-more');
+    const more = $('library-more');
     function sortedRecentlyOpened() {
       const states = catalogStates();
       const pinned = readLocal(pinnedKey);
@@ -532,10 +543,21 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       }).sort((first,second) => !!second.state?.favoriteAt - !!first.state?.favoriteAt ||
         second.openedAt - first.openedAt);
     }
-    function renderSavedGrid(focusId) {
-      ratingObserver?.disconnect();
+    function renderSavedGrid(focusId,append=false) {
+      if (!append) ratingObserver?.disconnect();
+      const offset = append ? grid.childElementCount : 0;
       let focusButton;
-      const cards = sortedRecentlyOpened().map(({show,state},index) => {
+      const recent = sortedRecentlyOpened();
+      const states = catalogStates();
+      const seen = new Set(recent.map(item => item.show.id));
+      const entries = [...recent];
+      for (const show of [...popularShows,...libraryShows()]) {
+        if (seen.has(show.id) || states[show.id]?.removed && !rankedRecords.has(show.id)) continue;
+        seen.add(show.id);
+        entries.push({show,state:states[show.id]});
+      }
+      const titles = new Map();
+      const cards = entries.slice(offset,visibleCatalogCount).map(({show,state},index) => {
         const card = make('div','library-saved-card');
         const name = seriesDisplayTitle(show);
         const selected = state?.favoriteAt > 0;
@@ -553,7 +575,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         favorite.title = selected ? 'Убрать из избранного' : 'Добавить в избранное';
         favorite.setAttribute('aria-label',favorite.title + ': ' + name);
         favorite.setAttribute('aria-pressed',String(selected));
-        remove.title = 'Удалить из каталога';
+        remove.title = rankedRecords.has(show.id) ? 'Убрать из недавних' : 'Удалить из каталога';
+        remove.hidden = !recent.some(item => item.show === show);
         remove.setAttribute('aria-label',remove.title + ': ' + name);
         favorite.onclick = () => {
           const saved = saveCatalogState(show,{...state,favoriteAt:selected ? 0 : Date.now()});
@@ -562,7 +585,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         };
         remove.onclick = () => {
           const saved = saveCatalogState(show,{removed:true});
-          announce(name + ' — удалено из каталога.',saved);
+          announce(name + (rankedRecords.has(show.id) ? ' — убрано из недавних.' : ' — удалено из каталога.'),saved);
           undo.hidden = false;
           undo.onclick = () => {
             announce(name + ' — возвращено в каталог.',saveCatalogState(show,state || {}));
@@ -576,12 +599,19 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         if (show.id === focusId) focusButton = favorite;
         const actions = make('div','library-card-actions');
         actions.append(cardScore(show,card),favorite,remove);
-        card.append(showCard(show,card,{compact:true,eager:index < 4}),actions);
+        const tile = showCard(show,card,{compact:true,eager:offset + index < 4});
+        titles.set(show,tile.querySelector('strong'));
+        card.append(tile,actions);
         return card;
       });
-      grid.replaceChildren(...cards);
-      grid.hidden = !cards.length;
-      $('library-recent-empty').hidden = cards.length > 0;
+      if (append) grid.append(...cards);
+      else grid.replaceChildren(...cards);
+      grid.hidden = !grid.childElementCount;
+      more.hidden = grid.childElementCount >= entries.length;
+      void seriesMetadata.searchTitles([...titles.keys()].slice(Math.max(0,titles.size - 30)),session.signal,show => {
+        const title = titles.get(show);
+        if (title) title.title = title.textContent = seriesDisplayTitle(show);
+      },{byImdb:true}).catch(() => {});
       focusButton?.focus();
     }
     function announce(message,saved) {
@@ -589,46 +619,11 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       undo.hidden = true;
       undo.onclick = null;
     }
-    function renderTop() {
-      const start = topGrid.childElementCount;
-      const batch = topShows.slice(start,visibleTopCount);
-      const titles = new Map();
-      topGrid.append(...batch.map((show,index) => {
-        const rank = start + index + 1;
-        const card = make('div','library-top-card');
-        const tile = showCard(show,card,{compact:true,eager:rank <= 4});
-        titles.set(show,tile.querySelector('strong'));
-        tile.append(make('span','library-top-rank',String(rank)));
-        card.append(tile);
-        return card;
-      }));
-      moreTop.hidden = visibleTopCount >= topShows.length;
-      if (batch.length) void seriesMetadata.searchTitles(batch,session.signal,show => {
-        const title = titles.get(show);
-        if (title) title.title = title.textContent = seriesDisplayTitle(show);
-      },{byImdb:true}).catch(() => {});
-    }
-    function selectLibraryTab(tab) {
-      if (tab === 'top' && libraryTab !== tab) metricaGoal('top_open');
-      libraryTab = tab;
-      const top = tab === 'top';
-      recentTab.setAttribute('aria-pressed',String(!top));
-      topTab.setAttribute('aria-pressed',String(top));
-      $('library-recent').hidden = top;
-      $('library-top').hidden = !top;
-      if (top) {
-        ratingObserver?.disconnect();
-        renderTop();
-      } else renderSavedGrid();
-    }
-    topGrid.replaceChildren();
-    recentTab.onclick = () => selectLibraryTab('recent');
-    topTab.onclick = () => selectLibraryTab('top');
-    moreTop.onclick = () => {
-      visibleTopCount += 30;
-      renderTop();
+    more.onclick = () => {
+      visibleCatalogCount += 30;
+      renderSavedGrid(undefined,true);
     };
-    selectLibraryTab(libraryTab || (sortedRecentlyOpened().length ? 'recent' : 'top'));
+    renderSavedGrid();
     function searchCard(show) {
       const card = make('div','library-collection-card');
       const add = make('button','library-tile-action tonal','Добавить в каталог');
@@ -637,7 +632,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         add.textContent = 'В каталоге';
         add.disabled = true;
       };
-      if (isSaved(show,catalogStates()[show.id],readLocal(pinnedKey))) markSaved();
+      if (rankedRecords.has(show.id) || isSaved(show,catalogStates()[show.id],readLocal(pinnedKey))) markSaved();
       add.onclick = () => {
         const saved = saveToCatalog(show);
         markSaved();
@@ -1092,7 +1087,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       const first = show.episodes?.[0];
       const last = resume(show);
       const firstSeason = first?.season || seasonsFor(show)[0];
-      watchLink.hidden = episodesLink.hidden = !firstSeason;
+      const opening = last || first || {season:firstSeason,episode:1};
+      const availability = episodeAvailability(rankedRecords.get(show.id),opening);
+      episodesLink.hidden = !firstSeason;
+      watchLink.hidden = !firstSeason || availability && availability !== 'AVAILABLE';
       if (firstSeason) {
         watchLink.textContent = last ? '▶ Продолжить просмотр' : '▶ Открыть первую серию';
         watchLink.href = watchPath(show,last || first || {season:firstSeason,episode:1});
@@ -1379,7 +1377,24 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const sourceKey = 'konfoly-source:' + show.id;
     const saved = readLocal(sourceKey);
     const itemId = episodeKey(item);
-    const nativeAvailable = canResolveSeriesNative(show);
+    const catalogRecord = rankedRecords.get(show.id);
+    const legacySources = !catalogRecord || alreadyInLibrary.has(show.id);
+    const nativeAvailable = legacySources && canResolveSeriesNative(show);
+    function verifiedSources() {
+      const configured = integrationSettings.seriesSources[show.id] ||
+        (catalogRecord && integrationSettings.seriesSources[catalogRecordId(catalogRecord)]);
+      if (!configured) return {};
+      const verified = catalogRecord?.confirmedProviders?.[itemId] || [];
+      const address = mediaAddress(configured.video,item.season,item.episode);
+      const official = configured.officialEpisodes?.[itemId];
+      const embed = verified.includes('official') && /^[a-zA-Z0-9_-]{11}$/.test(official?.youtube || '')
+        ? 'https://www.youtube-nocookie.com/embed/' + official.youtube : '';
+      return {
+        ...(embed && isIntegrationUrl(embed,'frame') ? {'verified-official':{embed}} : {}),
+        ...(configured.authorization && verified.includes('video') && isIntegrationUrl(address,'media') ? {'verified-video':{address}} : {}),
+        ...(configured.authorization && verified.includes('manifest') && configured.manifest ? {'verified-manifest':{manifest:configured.manifest}} : {})
+      };
+    }
     const attachedFile = () => localEpisodeFolders.get(show.id)?.get(itemId);
     const fileInput = make('input');
     fileInput.type = 'file';
@@ -1541,11 +1556,12 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     function candidateSources() {
       const list = [];
       if (attachedFile()) list.push('folder');
-      if (seriesSource(show,item,saved,'video')) list.push('video');
+      list.push(...Object.keys(verifiedSources()));
+      if (legacySources && seriesSource(show,item,saved,'video')) list.push('video');
       if (nativeAvailable) list.push('native');
-      if (stremioSource() && canUseStremio(show)) list.push('stremio');
-      if (episodeEndpoint()) list.push('endpoint');
-      if (seriesSource(show,item,saved,'alloha')) list.push('alloha');
+      if (legacySources && stremioSource() && canUseStremio(show)) list.push('stremio');
+      if (legacySources && episodeEndpoint()) list.push('endpoint');
+      if (legacySources && seriesSource(show,item,saved,'alloha')) list.push('alloha');
       return list;
     }
     function playbackUnavailable(message) {
@@ -1577,18 +1593,72 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         else openAutomatic(rest,time);
         return;
       }
-      void openProvider(id,undefined,time,{next});
+      const verified = verifiedSources()[id];
+      if (verified?.embed) {
+        openOfficial(verified.embed,time,next);
+        return;
+      }
+      void openProvider(verified ? 'video' : id,verified,time,{next});
+    }
+    function openOfficial(address,time,next) {
+      pending?.abort();
+      pending = null;
+      release?.();
+      if (sourceBox.open) sourceBox.close();
+      const url = new URL(address);
+      url.search = new URLSearchParams({enablejsapi:'1',autoplay:'1',origin:location.origin});
+      if (Number.isFinite(time) && time > 0) url.searchParams.set('start',String(Math.floor(time)));
+      const frame = createExternalVideoFrame(url.href,'Официальный плеер YouTube');
+      let closed = false;
+      const receive = event => {
+        if (event.origin !== url.origin || event.source !== frame.contentWindow) return;
+        let message;
+        try { message = JSON.parse(event.data); } catch { return; }
+        if (message.event === 'onError') fail();
+        if (message.event === 'onReady' || message.info?.playerState === 1) clearTimeout(timer);
+      };
+      const timer = setTimeout(fail,15000);
+      const subscribe = () => {
+        frame.contentWindow.postMessage(JSON.stringify({event:'listening',id:1,channel:'widget'}),url.origin);
+        frame.contentWindow.postMessage(JSON.stringify({event:'command',func:'addEventListener',args:['onError']}),url.origin);
+      };
+      function fail() {
+        if (closed) return;
+        release?.();
+        release = null;
+        if (next) next(time);
+        else playbackUnavailable('Официальный плеер не ответил.');
+      }
+      release = () => {
+        closed = true;
+        clearTimeout(timer);
+        window.removeEventListener('message',receive);
+        frame.remove();
+      };
+      frame.addEventListener('load',subscribe,{once:true});
+      frame.addEventListener('error',fail,{once:true});
+      window.addEventListener('message',receive);
+      status.textContent = 'Официальная публикация · YouTube';
+      screen.replaceChildren(frame);
     }
     function updateControls() {
       const viewed = readLocal(historyKeyFor(show))[itemId];
       restart.hidden = viewed?.completed || !(viewed?.time > 0);
-      preferred.textContent = !restart.hidden ? 'Продолжить с ' + playbackTime(viewed.time) : '▶ Смотреть';
-      endpointButton.hidden = !episodeEndpoint();
-      stremioButton.hidden = !stremioSource() || !canUseStremio(show);
+      const canPlay = candidateSources().length > 0;
+      preferred.hidden = !canPlay;
+      restart.hidden ||= !canPlay;
+      if (!canPlay && catalogRecord && !status.textContent) status.textContent =
+        availabilityLabels[episodeAvailability(catalogRecord,item)] || 'Видео для этой серии пока недоступно.';
+      const known = !catalogRecord || episodeAvailability(catalogRecord,item) === 'AVAILABLE' || attachedFile();
+      preferred.textContent = !known ? 'Проверить источник' :
+        !restart.hidden ? 'Продолжить с ' + playbackTime(viewed.time) : '▶ Смотреть';
+      endpointButton.hidden = !legacySources || !episodeEndpoint();
+      stremioButton.hidden = !legacySources || !stremioSource() || !canUseStremio(show);
       defaultNativeButton.hidden = !nativeAvailable;
       connectedFolder.hidden = !attachedFile();
       for (const [id,control] of [['video',nativeButton],['alloha',allohaButton]]) {
-        control.hidden = !seriesSource(show,item,saved,id);
+        control.hidden = !(legacySources && seriesSource(show,item,saved,id) ||
+          id === 'video' && Object.keys(verifiedSources()).length);
       }
     }
     async function openProvider(id,override,resumeTime,{next,retry=false,choice}={}) {
@@ -1675,8 +1745,8 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     restart.onclick = () => startAutomatic(0);
     empty.append(preferred,restart);
     screen.append(empty);
-    status.textContent = 'Наш плеер';
-    const nativeButton = make('button','tonal','Моё видео');
+    status.textContent = availabilityLabels[episodeAvailability(catalogRecord,item)] || 'Наш плеер';
+    const nativeButton = make('button','tonal',verifiedSources()['verified-official'] ? 'Официальный плеер' : 'Моё видео');
     const defaultNativeButton = make('button','tonal','Наш плеер');
     const allohaButton = make('button','tonal','Alloha');
     const endpointButton = make('button','tonal','Общий источник');
@@ -1686,7 +1756,11 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     chooseFolder.hidden = !supportsFolder;
     const connectedFolder = make('button','tonal','Открыть серию из папки');
     const sourceActions = make('div','source-form library-source-actions');
-    nativeButton.onclick = () => { void openProvider('video'); };
+    nativeButton.onclick = () => {
+      const verified = Object.keys(verifiedSources());
+      if (verified.length) openAutomatic(verified);
+      else if (legacySources) void openProvider('video');
+    };
     defaultNativeButton.onclick = () => { void openProvider('native'); };
     allohaButton.onclick = () => { void openProvider('alloha'); };
     endpointButton.onclick = () => { void openProvider('endpoint'); };
@@ -1789,7 +1863,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     description.append(metadataStatus);
     panel.replaceChildren(fragment,sourceBox);
     const previewTimer = setTimeout(() => preview.abort(),9000);
-    previewEpisodeVoices(show,item,preview.signal,items => {
+    if (legacySources) previewEpisodeVoices(show,item,preview.signal,items => {
       if (pending || screen.querySelector('video,iframe')) return;
       const selected = preselectedVoice || 'native:' + (saved.nativeVoice || '');
       renderStreamChoices(preflight,'Озвучка',items,selected,value => { preselectedVoice = value; },true);

@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build.js",
+    "sync:catalog": "node scripts/sync-catalog.js",
     "test": "node --test tests/app-flow.cjs tests/config.js tests/playback.cjs tests/telegram-sync.cjs"
   },
   "devDependencies": {

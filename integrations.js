@@ -5,7 +5,14 @@ const integrationSettings = Object.freeze({
   episodeEndpoint: '',
   stremioManifest: '',
   logoEndpoint: '',
-  seriesSources: {},
+  seriesSources: {
+    'imdb-tt5622316': {
+      officialEpisodes: {
+        '1:1':{youtube:'0E-8-NcL7tc',publisher:'https://www.youtube.com/@TheChosenSeries',
+          title:'The Chosen: Season One, Episodes 1 & 2',verifiedOn:'2026-11-20'}
+      }
+    }
+  },
   embeds: {
     namy: {
       title:'Namy / Collaps',detail:'Запасной встроенный плеер.',
@@ -38,7 +45,9 @@ function integrationOrigins(settings) {
       settings.stremioManifest?.replace(/^stremio:/i,'https:'),settings.logoEndpoint,
       ...settings.connectOrigins,...series.map(source => source.manifest)]),...media])],
     frame:origins([...settings.embedOrigins,...Object.values(settings.embeds).map(embed => embed.address),
-      ...series.map(source => source.alloha)]),
+      ...series.map(source => source.alloha),
+      ...series.filter(source => Object.keys(source.officialEpisodes || {}).length)
+        .map(() => 'https://www.youtube-nocookie.com')]),
     image:origins(settings.imageOrigins)
   };
 }
