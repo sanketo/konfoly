@@ -86,6 +86,7 @@ function route() {
   if (changedEpisode) pendingPosition = 0;
   if (next.item) current = next.item;
   page = next.page;
+  window.konfolyMetricaPage?.(page);
   for (const panel of document.querySelectorAll('.page')) {
     panel.hidden = panel.id !== page;
     if (switchedPage && !panel.hidden) panel.animate?.(
