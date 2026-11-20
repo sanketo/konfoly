@@ -261,24 +261,26 @@ const seriesMetadata = (() => {
     const data = await json(url,{signal});
     return data.results?.bindings || [];
   }
-  async function searchTitles(shows,signal,onTitle) {
-    const missing = shows.filter(show => Number.isInteger(show.mazeId) &&
-      !/\p{Script=Cyrillic}/u.test(details(show).title)).slice(0,12);
+  async function searchTitles(shows,signal,onTitle,{byImdb=false}={}) {
+    const identifier = show => byImdb ? show.imdb?.id : show.mazeId;
+    const property = byImdb ? 'P345' : 'P8600';
+    const missing = shows.filter(show => (byImdb ? validImdb(identifier(show)) : Number.isInteger(identifier(show))) &&
+      !/\p{Script=Cyrillic}/u.test(details(show).title)).slice(0,byImdb ? 30 : 12);
     if (!missing.length) return;
     const labels = await wikidataRows('SELECT ?id ?name WHERE { VALUES ?id { ' +
-      missing.map(show => '"' + show.mazeId + '"').join(' ') +
-      ' } ?show wdt:P8600 ?id ; rdfs:label ?name . FILTER(LANG(?name) = "ru") }',signal);
+      missing.map(show => '"' + identifier(show) + '"').join(' ') +
+      ' } ?show wdt:' + property + ' ?id ; rdfs:label ?name . FILTER(LANG(?name) = "ru") }',signal);
     if (signal.aborted) return;
     const localized = new Map();
     for (const row of labels) {
       const title = text(row.name?.value,230);
       if (!/\p{Script=Cyrillic}/u.test(title)) continue;
-      const id = Number(row.id?.value);
+      const id = row.id?.value;
       if (!localized.has(id)) localized.set(id,new Set());
       localized.get(id).add(title);
     }
     for (const show of missing) {
-      const names = localized.get(show.mazeId);
+      const names = localized.get(String(identifier(show)));
       if (names?.size !== 1) continue;
       save(show,{searchRuTitle:[...names][0]});
       onTitle(show);

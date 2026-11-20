@@ -9,6 +9,16 @@ import {loadCinemetaSeries,searchCinemeta} from '../cinemeta.js';
 import {loadAppleAgeRating} from '../series-age-ratings.js';
 import {seekTimeAtPointer} from '../video-controls.js';
 import {posterSources,tvmazePoster} from '../series-posters.js';
+import topCatalog from '../data/top-series.json' with {type:'json'};
+
+test('the top catalog contains 250 unique non-documentary series in source order', () => {
+  const {shows} = topCatalog;
+  assert.equal(shows.length,250);
+  assert.equal(new Set(shows.map(show => show.imdb)).size,shows.length);
+  assert.ok(shows.every((show,index) => /^tt\d{5,12}$/.test(show.imdb) && show.title &&
+    show.genres.length && !show.genres.some(genre => /^documentary$/i.test(genre)) &&
+    (index === 0 || shows[index-1].sourceRank < show.sourceRank)));
+});
 
 test('imported Interns and the four-season edition map only on provider lookup', () => {
   const item = {season:4,episode:1,title:'Серия 61'};

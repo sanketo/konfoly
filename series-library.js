@@ -17,6 +17,8 @@ import {canResolveSeriesNative, canUseStremio, createExternalVideoFrame, episode
 import {mediaAddress} from './urls.js';
 import {bindVideoKeys, isMobileCinema, requestCinemaFullscreen} from './video-controls.js';
 import {createCinemaPlayer} from './player-ui.js';
+import {metricaPage,metricaGoal} from './metrica.js';
+import topCatalog from './data/top-series.json' with {type:'json'};
 
 function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute}) {
   const mentalist = mentalistCatalog;
@@ -39,10 +41,24 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (image?.startsWith('assets/')) existing.image = image;
     return [];
   });
-  const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show)),...indexedShows];
+  const rankedShows = new Map();
+  const libraryShows = () => [mentalist,breakingBad,importedInterns || interns,...imported.filter(show => !isInterns(show)),
+    ...indexedShows,...rankedShows.values()];
   const shows = new Map([mentalist,breakingBad,interns,...indexedShows,...imported].map(show => [show.id,show]));
+  const knownByImdb = new Map(libraryShows().map(show => [show.imdb?.id || seriesIdentity(show)?.imdbId,show]));
+  const topShows = topCatalog.shows.map(entry => {
+    const existing = knownByImdb.get(entry.imdb);
+    if (existing) return existing;
+    const id = 'imdb-' + entry.imdb;
+    const show = {id,title:entry.title,years:entry.years,genres:entry.genres,imdb:{id:entry.imdb}};
+    rankedShows.set(id,show);
+    shows.set(id,show);
+    return show;
+  });
   const searchPreviews = new Map();
   let lastSearch;
+  let libraryTab;
+  let visibleTopCount = 30;
   const showPath = show => '#series/' + show.id;
   const seasonPath = (show,season) => showPath(show) + '/season/' + (season || 'all');
   const watchPath = (show,item) => showPath(show) + '/' + item.season + '/' + item.episode;
@@ -103,10 +119,12 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     else unsavedCatalogChanges[show.id] = state;
     return saved;
   }
-  function isSaved(show,state,pinned) {
+  function playbackFor(show) {
+    return readPlaybackMemory(show === mentalist ? undefined : progressKey(show)).last;
+  }
+  function isSaved(show,state,pinned,last=playbackFor(show)) {
     if (state?.removed) return false;
-    return !!(state || pinned[show.id] || imported.includes(show) ||
-      readPlaybackMemory(show === mentalist ? undefined : progressKey(show)).last);
+    return !!(state || pinned[show.id] || imported.includes(show) || last);
   }
   function link(label,path,className) {
     const element = make('a',className,label);
@@ -215,7 +233,12 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (!show) return;
     const overview = route.page === 'home' || route.overview ||
       (route.page === 'series' && !route.loadEpisodes && route.season == null && !route.episode);
-    if (overview && !isSaved(show,catalogStates()[show.id],readLocal(pinnedKey))) saveToCatalog(show);
+    const state = catalogStates()[show.id];
+    if (overview && show.preview) saveToCatalog(show);
+    if ((overview || route.episode || route.season != null || route.page === 'watch' || route.page === 'catalog') &&
+        !show.preview && (!state?.removed || overview)) {
+      saveCatalogState(show,{...state,removed:false,openedAt:Date.now()});
+    }
     const previous = active.id === show.id ? active : {};
     active = {
       id:show.id,
@@ -494,18 +517,28 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     feedback.textContent = '';
     undo.hidden = true;
     undo.onclick = null;
-    function renderSavedGrid(focusId) {
-      ratingObserver?.disconnect();
+    const recentTab = $('library-recent-tab');
+    const topTab = $('library-top-tab');
+    const topGrid = $('library-top-grid');
+    const moreTop = $('library-top-more');
+    function sortedRecentlyOpened() {
       const states = catalogStates();
       const pinned = readLocal(pinnedKey);
-      const favoriteAt = show => states[show.id]?.favoriteAt || 0;
-      const savedShows = libraryShows().filter(show => isSaved(show,states[show.id],pinned))
-        .sort((first,second) => favoriteAt(second) - favoriteAt(first));
+      return libraryShows().flatMap(show => {
+        const state = states[show.id];
+        const last = playbackFor(show);
+        if (!isSaved(show,state,pinned,last || null)) return [];
+        return [{show,state,openedAt:Math.max(state?.openedAt || 0,last?.updatedAt || 0)}];
+      }).sort((first,second) => !!second.state?.favoriteAt - !!first.state?.favoriteAt ||
+        second.openedAt - first.openedAt);
+    }
+    function renderSavedGrid(focusId) {
+      ratingObserver?.disconnect();
       let focusButton;
-      const cards = savedShows.map((show,index) => {
+      const cards = sortedRecentlyOpened().map(({show,state},index) => {
         const card = make('div','library-saved-card');
         const name = seriesDisplayTitle(show);
-        const selected = favoriteAt(show) > 0;
+        const selected = state?.favoriteAt > 0;
         const favorite = make('button','library-card-button library-favorite');
         const star = document.createElementNS('http://www.w3.org/2000/svg','svg');
         star.classList.add('library-favorite-star');
@@ -523,7 +556,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         remove.title = 'Удалить из каталога';
         remove.setAttribute('aria-label',remove.title + ': ' + name);
         favorite.onclick = () => {
-          const saved = saveCatalogState(show,selected ? {} : {favoriteAt:Date.now()});
+          const saved = saveCatalogState(show,{...state,favoriteAt:selected ? 0 : Date.now()});
           announce(name + (selected ? ' — убрано из избранного.' : ' — в избранном.'),saved);
           renderSavedGrid(show.id);
         };
@@ -532,7 +565,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
           announce(name + ' — удалено из каталога.',saved);
           undo.hidden = false;
           undo.onclick = () => {
-            announce(name + ' — возвращено в каталог.',saveCatalogState(show,states[show.id] || {}));
+            announce(name + ' — возвращено в каталог.',saveCatalogState(show,state || {}));
             renderSavedGrid(show.id);
             if (input.value.trim().length >= 2) search();
           };
@@ -548,6 +581,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       });
       grid.replaceChildren(...cards);
       grid.hidden = !cards.length;
+      $('library-recent-empty').hidden = cards.length > 0;
       focusButton?.focus();
     }
     function announce(message,saved) {
@@ -555,7 +589,46 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       undo.hidden = true;
       undo.onclick = null;
     }
-    renderSavedGrid();
+    function renderTop() {
+      const start = topGrid.childElementCount;
+      const batch = topShows.slice(start,visibleTopCount);
+      const titles = new Map();
+      topGrid.append(...batch.map((show,index) => {
+        const rank = start + index + 1;
+        const card = make('div','library-top-card');
+        const tile = showCard(show,card,{compact:true,eager:rank <= 4});
+        titles.set(show,tile.querySelector('strong'));
+        tile.append(make('span','library-top-rank',String(rank)));
+        card.append(tile);
+        return card;
+      }));
+      moreTop.hidden = visibleTopCount >= topShows.length;
+      if (batch.length) void seriesMetadata.searchTitles(batch,session.signal,show => {
+        const title = titles.get(show);
+        if (title) title.title = title.textContent = seriesDisplayTitle(show);
+      },{byImdb:true}).catch(() => {});
+    }
+    function selectLibraryTab(tab) {
+      if (tab === 'top' && libraryTab !== tab) metricaGoal('top_open');
+      libraryTab = tab;
+      const top = tab === 'top';
+      recentTab.setAttribute('aria-pressed',String(!top));
+      topTab.setAttribute('aria-pressed',String(top));
+      $('library-recent').hidden = top;
+      $('library-top').hidden = !top;
+      if (top) {
+        ratingObserver?.disconnect();
+        renderTop();
+      } else renderSavedGrid();
+    }
+    topGrid.replaceChildren();
+    recentTab.onclick = () => selectLibraryTab('recent');
+    topTab.onclick = () => selectLibraryTab('top');
+    moreTop.onclick = () => {
+      visibleTopCount += 30;
+      renderTop();
+    };
+    selectLibraryTab(libraryTab || (sortedRecentlyOpened().length ? 'recent' : 'top'));
     function searchCard(show) {
       const card = make('div','library-collection-card');
       const add = make('button','library-tile-action tonal','Добавить в каталог');
@@ -730,10 +803,12 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         const outcomes = await Promise.allSettled([loadMatches(),loadLocalizedMatches(),loadCinemetaMatches()]);
         if (signal.aborted) return;
         snapshot.complete = outcomes.every(item => item.status === 'fulfilled');
-        status.textContent = seen.size ? 'Результаты поиска' : outcomes.every(item => item.status === 'rejected')
-          ? 'Источники поиска недоступны. Попробуй ещё раз.' : 'Сериал не найден';
+        const failed = outcomes.every(item => item.status === 'rejected');
+        status.textContent = seen.size ? 'Результаты поиска' : failed ? 'Источники поиска недоступны. Попробуй ещё раз.' : 'Сериал не найден';
+        metricaGoal(seen.size ? 'search_results' : failed ? 'search_error' : 'search_empty');
       },() => {
         status.textContent = results.childElementCount ? 'Результаты поиска' : 'Источники поиска не ответили. Попробуй ещё раз.';
+        metricaGoal(results.childElementCount ? 'search_results' : 'search_error');
       });
     }
     form.onsubmit = event => {
@@ -1202,14 +1277,17 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       signal.addEventListener('abort',abort,{once:true});
       const timer = setTimeout(abort,15000);
       nextSeason.disabled = true;
+      let fetched = false;
       nextSeasonStatus.textContent = 'Загружаем сезон ' + number + '…';
       try {
         const stored = partialSeasons.get(original)?.get(number) ||
           cachedEpisodes(catalogKey(original) + ':season:' + number).episodes;
+        fetched = !stored;
         const added = stored || (await fetchEpisodes(original,controller.signal,{
           preferredSeason:number,seasonOnly:true,onSeasons:() => {}
         })).episodes;
         if (signal.aborted) return;
+        if (fetched) metricaGoal('season_load_success');
         seasonLoadFailed = false;
         rememberSeason(original,number,added);
         visibleLimit += pageSize;
@@ -1222,6 +1300,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         nextSeasonStatus.textContent = 'Загружено сезонов · ' + new Set(episodes.map(item => item.season)).size + ' из ' + seasonsFor(show).length;
       } catch {
         if (!signal.aborted) {
+          if (fetched) metricaGoal('season_load_error');
           seasonLoadFailed = true;
           nextSeasonStatus.textContent = 'Не удалось загрузить сезон ' + number + '. Можно повторить или выбрать другой сезон.';
         }
@@ -1792,6 +1871,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     }
   }
   function render(route) {
+    metricaPage(route);
     palette(route);
     $('series').classList.toggle('watch-page',!!route.episode);
     metadataSession?.abort();
@@ -1822,6 +1902,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       function showFailure() {
         if (signal.aborted || failed) return;
         failed = true;
+        if (route.season != null) metricaGoal('season_load_error');
         loading.textContent = 'Не удалось загрузить эпизоды. Попробуй ещё раз.';
         const retry = make('button','tonal episode-load-retry','Повторить');
         retry.onclick = renderCurrentRoute;
@@ -1846,6 +1927,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         }
       }).then(({episodes,partialSeason,directoryLoaded}) => {
         if (controller.signal.aborted) return;
+        if (route.requestedSeason && route.season != null) metricaGoal('season_load_success');
         if (directoryLoaded) {
           directoryCatalogs.add(route.show);
           loading.hidden = true;
