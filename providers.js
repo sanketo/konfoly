@@ -5,6 +5,7 @@ import {readLocal} from './storage.js';
 import {make} from './dom.js';
 import {enhance} from './select-ui.js';
 import {seriesMetadata} from './series-metadata.js';
+import {assetAddress} from './site-pages.js';
 
 const mediaProviders = [
   {id:'native',title:'Наш плеер',detail:'Рекомендуемый · ТВ3, Universal и TVShows при наличии',action:'Смотреть'},
@@ -281,7 +282,7 @@ function loadHls() {
   if (!hlsScript) {
     hlsScript = new Promise((resolve,reject) => {
       const script = document.createElement('script');
-      script.src = 'vendor/hls-1.6.15.min.js';
+      script.src = assetAddress('vendor/hls-1.6.15.min.js');
       script.onload = () => window.Hls ? resolve(window.Hls) : reject(Error('HLS не загрузился'));
       script.onerror = () => {
         script.remove();

@@ -21,8 +21,9 @@ import {createCinemaPlayer} from './player-ui.js';
 import {metricaPage,metricaGoal} from './metrica.js';
 import popularCatalog from './data/popular-series.json' with {type:'json'};
 import {availabilityLabels,catalogRecordId,episodeAvailability,findCatalogShow,sourceRevision} from './catalog-model.js';
+import {assetAddress,siteHref} from './site-pages.js';
 
-function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute}) {
+function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute,navigateSite}) {
   const mentalist = mentalistCatalog;
   const libraryKey = 'konfoly-library-v1';
   const pinnedKey = 'konfoly-pinned-series-v1';
@@ -71,9 +72,10 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
   const searchPreviews = new Map();
   let lastSearch;
   let visibleCatalogCount = 30;
-  const showPath = show => '#series/' + show.id;
-  const seasonPath = (show,season) => showPath(show) + '/season/' + (season || 'all');
-  const watchPath = (show,item) => showPath(show) + '/' + item.season + '/' + item.episode;
+  const showRoute = show => '#series/' + show.id;
+  const showPath = show => siteHref(showRoute(show));
+  const seasonPath = (show,season) => siteHref(showRoute(show) + '/season/' + (season || 'all'));
+  const watchPath = (show,item) => siteHref(showRoute(show) + '/' + item.season + '/' + item.episode);
   const progressKey = show => 'konfoly-progress:' + show.id;
   const historyKeyFor = show => 'konfoly-history:' + show.id;
   const episodeKey = item => item.season + ':' + item.episode;
@@ -165,7 +167,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     let index = 0;
     function next() {
       const address = addresses[index++];
-      if (address) image.src = address;
+      if (address) image.src = assetAddress(address);
       else onMissing();
     }
     image.addEventListener('error',next);
@@ -281,12 +283,12 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     if (element.hasAttribute('data-library-nav')) return ['home','library'].includes(route.page) || !!(route.show && route.season == null && !route.episode);
     if (element.hasAttribute('data-catalog-nav')) {
       const season = route.episode?.season ?? route.season ?? active?.season ?? (show && show !== mentalist && activeEpisode(show)?.season);
-      element.href = show === mentalist ? '#catalog' : show ? seasonPath(show,season) : '#library/search';
+      element.href = show ? seasonPath(show,season) : siteHref('#library/search');
       return route.page === 'catalog' || route.season != null;
     }
     if (element.hasAttribute('data-watch-nav')) {
       const item = route.episode || (show && show !== mentalist && activeEpisode(show));
-      element.href = show === mentalist ? '#watch' : item ? watchPath(show,item) : '#library/search';
+      element.href = show === mentalist ? siteHref('#watch') : item ? watchPath(show,item) : siteHref('#library/search');
       return route.page === 'watch' || !!route.episode;
     }
     return null;
@@ -295,7 +297,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
     const show = activeSeries();
     if (!show || show === mentalist) return false;
     openSourcesFor = watchPath(show,activeEpisode(show));
-    location.hash = openSourcesFor;
+    navigateSite(openSourcesFor);
     return true;
   }
   function back(page) {
@@ -1012,12 +1014,13 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       for (const [index,address] of addresses.entries()) {
         if (!(await checks[index])) continue;
         if (revision !== titleRevision) return;
-        if (title.firstElementChild?.getAttribute('src') === address) {
+        const src = assetAddress(address);
+        if (title.firstElementChild?.getAttribute('src') === src) {
           title.firstElementChild.alt = name;
           return;
         }
         const logo = make('img');
-        logo.src = address;
+        logo.src = src;
         logo.alt = name;
         logo.width = 369;
         logo.height = 220;
@@ -1351,7 +1354,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
       continueButton.textContent = 'Продолжить просмотр · ' + last.season + '×' + last.episode + ' · ' + playbackTime(last.time);
       continueButton.onclick = () => {
         if (episodeKey(last) === episodeKey(item)) startAutomatic(last.time);
-        else location.hash = watchPath(show,last);
+        else navigateSite(watchPath(show,last));
       };
     }
     const screen = get('screen');
@@ -1809,7 +1812,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
         next = {season:item.season+1,episode:1};
       }
       button.disabled = !next;
-      if (next) button.onclick = () => { location.hash = watchPath(show,next); };
+      if (next) button.onclick = () => navigateSite(watchPath(show,next));
     }
     const description = fragment.querySelector('.watch-description');
     const actions = fragment.querySelector('.watch-actions');
@@ -1931,7 +1934,7 @@ function createSeriesLibrary({preferences,persist,episodeCard,cloneWatchLayout,a
             chroma:.08 + .12 * saturation[bin] / best} : null);
         } catch { done(null); }
       };
-      image.src = url;
+      image.src = assetAddress(url);
     });
     posterColors.set(url,sample);
     return sample;

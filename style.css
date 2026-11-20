@@ -64,8 +64,8 @@ main{width:min(100%,1280px);margin:auto;padding:12px var(--space) 0;container-ty
 .season-tile strong{font-size:2rem;line-height:1.15}.season-tile small{font-size:.72rem}
 .page-title{font-size:clamp(1.9rem,5vw,3.6rem);line-height:1.1;letter-spacing:-.065em;margin:6px 0 14px}
 .catalog-toolbar{background:var(--container);border-radius:var(--r-medium);padding:10px;margin-bottom:12px}
-.segments button{flex-shrink:0;border-radius:var(--r-small)}
-.segments button[aria-pressed=true]{background:var(--primary);color:var(--on-primary);border-radius:var(--r-pill)}
+.segments :is(button,a){flex-shrink:0;border-radius:var(--r-small)}
+.segments :is(button[aria-pressed=true],a[aria-current]){background:var(--primary);color:var(--on-primary);border-radius:var(--r-pill)}
 .filters{margin:0;align-items:center}
 .search{display:flex;align-items:center;gap:8px;flex:1 0 100%;background:var(--high);border-radius:var(--r-pill);padding:0 14px}
 .search input{background:none;border:0;min-height:48px;width:100%;min-width:0}
@@ -161,7 +161,7 @@ footer{color:var(--muted);display:flex;flex-wrap:wrap;justify-content:space-betw
  :root {--spring:linear(0,.5 16%,.88 32%,1.065 53%,1.025 71%,.994 88%,1)}
 }
 @keyframes select-spring {from{transform:scale(.88)}to{transform:scale(1)}}
-.segments button[aria-pressed=true]{animation:select-spring .38s var(--spring)}
+.segments :is(button[aria-pressed=true],a[aria-current]){animation:select-spring .38s var(--spring)}
 @media(max-width:899px){.navigation a[aria-current] span{animation:select-spring .38s var(--spring)}}
 .sheet[open]{animation:sheet-in .42s var(--spring)}
 .episode-open{padding-bottom:0}

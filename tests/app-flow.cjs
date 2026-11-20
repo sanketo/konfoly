@@ -12,14 +12,15 @@ class Element extends EventTarget{
 (async()=>{
  const ids=new Map(),doc=new EventTarget(),storage=new Map(),requests=[];doc.visibilityState='visible';doc.getElementById=id=>{if(!ids.has(id))ids.set(id,new Element());return ids.get(id)};doc.createElement=t=>new Element(t);doc.querySelectorAll=()=>[];doc.querySelector=()=>new Element();doc.documentElement={dataset:{}};
  const location=new URL('https://test.invalid/');const window=new EventTarget();window.scrollTo=()=>{};
- const platform={configure(){},showBack(){},tap(){},applyChrome(){}};const history={pushState(_state,_title,hash){location.hash=hash}};
+ const platform={configure(){},showBack(){},tap(){},applyChrome(){}};const history={pushState(_state,_title,url){location.href=new URL(url,location.href).href}};
  storage.set('mentalist-personal-v1',JSON.stringify({season:1,episode:1,voice:'ТВ3',selected:'native',playerVersion:3,rate:1.1}));storage.set('mentalist-progress-v1',JSON.stringify({last:{season:4,episode:11,time:850,duration:2500,voice:'ТВ3',source:'native'}}));
  const stalled=new Map();
  const schedule=(callback,ms)=>{if(ms!==14000)return setTimeout(callback,ms);const key=Symbol('stall');stalled.set(key,callback);return key};
  const cancel=key=>{if(typeof key==='symbol')stalled.delete(key);else clearTimeout(key)};
  const triggerStall=()=>{assert.equal(stalled.size,1);const [key,callback]=stalled.entries().next().value;stalled.delete(key);callback()};
  const ctx={document:doc,window,location,history,platform,AbortController,matchMedia:()=>new EventTarget(),getComputedStyle:()=>({getPropertyValue:()=>'#000'}),URL,URLSearchParams,refreshKinosalSelect:()=>{},createSeriesLibrary:()=>({match(){},selectRoute(){},navigation(){},render(){},back(){}}),setTimeout:schedule,clearTimeout:cancel,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},createCinemaPlayer:()=>({destroy(){},setBoost(){}}),fetch:async url=>{requests.push(url);if(url.includes('/playlist?')){const u=new URL(url);return {ok:true,json:async()=>({items:[{season:Number(u.searchParams.get('sn')),episode:Number(u.searchParams.get('ep')),voiceStudio:'ТВ3',vkId:'fixture'}]})}}return {ok:true,json:async()=>({sources:{mpegFullHdUrl:'https://test.okcdn.ru/video.mp4'}})}}};
- vm.createContext(ctx);for(const f of ['dom.js','storage.js','series-config.js','integrations.js','urls.js','video-progress.js','video-controls.js','episodes.js','episode-titles-ru.js','importance.js','providers.js','ratings-data.js','ratings.js','app.js'])vm.runInContext(source(f),ctx);
+ ctx.KONFOLY_PUBLIC_ROUTES=['series/mentalist/season/4','series/mentalist/4/11','series/mentalist/4/1','series/mentalist/3/23'];
+ vm.createContext(ctx);for(const f of ['dom.js','storage.js','series-config.js','integrations.js','urls.js','site-pages.js','video-progress.js','video-controls.js','episodes.js','episode-titles-ru.js','importance.js','providers.js','ratings-data.js','ratings.js','app.js'])vm.runInContext(source(f),ctx);
  assert.match(ids.get('continue-info').textContent,/Сезон 4 · Серия 11/);
  assert.equal(ids.get('series-ratings').children.length,2);
  assert.equal(ids.get('home-age-rating').textContent,'18+');
@@ -53,7 +54,9 @@ class Element extends EventTarget{
  assert.equal(ids.get('snow-field').children.length,0);
  ids.get('continue-button').onclick();
  await new Promise(setImmediate);
- assert.equal(location.hash,'#watch/4/11');
+ assert.equal(location.pathname,'/series/mentalist/season/4/episode/11/');
+ assert.equal(location.hash,'');
+ assert.equal(ids.get('share-link').href,location.pathname);
  assert.equal(ids.get('episode-title').textContent,'Всегда ставь на красное');
  assert.equal(ids.get('episode-title-original').textContent,'Always Bet on Red');
  assert.equal(ids.get('episode-plot').open,false);
@@ -92,9 +95,11 @@ class Element extends EventTarget{
  assert.ok(requests.at(-2).includes('ep=23&sn=3'));
  assert.match(ids.get('episode-number').textContent,/23–24/);
  ids.get('next').onclick();
- assert.equal(location.hash,'#watch/4/1');
+ assert.equal(location.pathname,'/series/mentalist/season/4/episode/1/');
  ids.get('previous').onclick();
- assert.equal(location.hash,'#watch/3/23');
+ assert.equal(location.pathname,'/series/mentalist/season/3/episode/23/');
+ ctx.navigateSite('/series/mentalist/season/4/');
+ assert.equal(ids.get('episodes').children.length,24);
  location.hash='#catalog';
  ctx.renderCurrentRoute();
  const full=ids.get('episodes').children.length;

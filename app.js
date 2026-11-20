@@ -17,6 +17,7 @@ import {integrationSettings} from './integrations.js';
 import {createSeriesLibrary} from './series-library.js';
 import {seriesEnglishPremises} from './series-data.js';
 import {createTelegramSync} from './telegram-sync.js';
+import {appRoute, assetAddress, siteBase, siteHref} from './site-pages.js';
 
 const watchLayout = $('watch-layout')?.content;
 const integrationLayout = $('integration-settings-layout')?.content;
@@ -44,6 +45,7 @@ const episodeById = new Map(episodeCatalog.map(item => [episodeId(item.season,it
 let current = episodeById.get(episodeId(saved.season,saved.episode)) || episodeCatalog[0];
 let catalogSeason = current.season;
 let page = 'home';
+let browserAddress = location.href;
 let telegramSync;
 let media, releaseMedia, fileUrl, request, pendingPosition = null, editEpisode;
 let voicePreview, preselectedVoice;
@@ -102,7 +104,13 @@ function setSelectValue(id,value) {
   refreshKinosalSelect(id);
 }
 function chooseRoute() {
-  const hash = location.hash.slice(1);
+  let hash = appRoute();
+  const seasonRoute = /^series\/mentalist\/season\/(all|\d+)$/.exec(hash);
+  if (seasonRoute) {
+    const season = seasonRoute[1] === 'all' ? 0 : Number(seasonRoute[1]);
+    if (season === 0 || counts[season-1]) return {page:'catalog',season};
+  }
+  if (/^series\/mentalist\/\d+\/\d+$/.test(hash)) hash = 'watch/' + hash.slice('series/mentalist/'.length);
   const libraryRoute = library.match(hash,platform.start);
   if (libraryRoute) return libraryRoute;
   const match = /^watch\/(\d+)\/(\d+)$/.exec(hash);
@@ -112,7 +120,9 @@ function chooseRoute() {
   return { page:item || hash === 'watch' ? 'watch' : ['catalog','settings'].includes(hash) ? hash : 'home', item };
 }
 function renderCurrentRoute() {
+  browserAddress = location.href;
   const next = chooseRoute();
+  if (next.page === 'catalog' && next.season != null) catalogSeason = next.season;
   document.documentElement.removeAttribute?.('data-start-library');
   library.selectRoute(next);
   const switchedPage = next.page !== page;
@@ -148,13 +158,17 @@ function renderCurrentRoute() {
   persist();
   window.scrollTo(0,0);
 }
+function navigateSite(href) {
+  const url = new URL(siteHref(href),location.href);
+  url.search = location.search;
+  if (url.href !== location.href) history.pushState(null,'',url);
+  renderCurrentRoute();
+}
 function openEpisode(item, time = null) {
   clearMedia();
   current = item;
   pendingPosition = time;
-  history.pushState(null,'',episodeHash(item));
-  renderCurrentRoute();
-
+  navigateSite(episodeHash(item));
 }
 function refreshHome() {
   const last = latestView();
@@ -179,12 +193,16 @@ $('watch-continue').onclick = continueViewing;
 $('catalog-continue').onclick = continueViewing;
 function seasonButtons() {
   const tiles = counts.map((count,index) => {
-    const button = make('button','season-tile');
+    const button = make('a','season-tile');
+    button.href = siteHref('#series/mentalist/season/' + (index + 1));
     button.append(make('strong',null,String(index + 1).padStart(2,'0')),make('small',null,'Сезон · ' + count));
-    button.onclick = () => { catalogSeason = index + 1; location.hash = 'catalog'; platform.tap(); };
     return button;
   });
   $('home-seasons').replaceChildren(...tiles);
+}
+for (const link of document.querySelectorAll('.top a, .navigation a, #home a[href]')) {
+  const {hash} = new URL(link.href,location.href);
+  if (hash) link.href = siteHref(hash === '#catalog' ? '#series/mentalist/season/all' : hash);
 }
 function classification(item) {
   const base = importanceCatalog[key(item)];
@@ -199,9 +217,9 @@ function classification(item) {
 function renderCatalog() {
   const oldScroll = $('seasons').scrollLeft;
   $('seasons').replaceChildren(...Array.from({length:8},(_,season) => {
-    const button = make('button',null,season ? season + ' сезон' : 'Все');
-    button.setAttribute('aria-pressed',season === catalogSeason);
-    button.onclick = () => { catalogSeason = season; renderCatalog(); platform.tap(); };
+    const button = make('a','tonal',season ? season + ' сезон' : 'Все');
+    button.href = siteHref('#series/mentalist/season/' + (season || 'all'));
+    if (season === catalogSeason) button.setAttribute('aria-current','page');
     return button;
   }));
   $('seasons').scrollLeft = oldScroll;
@@ -231,13 +249,13 @@ function visibleTitle(item) {
 function episodeCard(item, options = null) {
   const card = make('article','episode-card');
   const link = make('a','episode-open');
-  link.href = options ? options.href : episodeHash(item);
+  link.href = options ? options.href : siteHref(episodeHash(item));
   link.setAttribute('aria-label','Открыть сезон ' + item.season + ', серия ' + item.episode);
   if (options ? options.current : key(item) === key(current)) link.setAttribute('aria-current','true');
   const placeholder = () => make('div','episode-placeholder',String(item.episode).padStart(2,'0'));
   if (item.image) {
     const image = make('img','episode-image');
-    image.src = item.image;
+    image.src = assetAddress(item.image);
     image.alt = '';
     image.loading = 'lazy';
     image.decoding = 'async';
@@ -393,12 +411,12 @@ function renderWatch() {
   $('episode-description').textContent = current.description || '';
   renderEpisodeRatings(current);
   renderEpisodePlot(current);
-  $('share-link').href = episodeHash(current);
+  $('share-link').href = siteHref(episodeHash(current));
   $('share-link').onclick = async event => {
     if (!navigator.clipboard?.writeText) return;
     event.preventDefault();
     try {
-      await navigator.clipboard.writeText(new URL(episodeHash(current),location.href).href);
+      await navigator.clipboard.writeText(new URL($('share-link').href,location.href).href);
       $('source-status').textContent = 'Ссылка на серию скопирована';
     } catch { $('source-status').textContent = 'Ссылку можно скопировать из адресной строки'; }
   };
@@ -868,13 +886,13 @@ $('spoilers').onchange = event => {preferences.spoilers=event.target.checked;$('
 matchMedia('(prefers-color-scheme: light)').addEventListener('change',applyTheme);
 for (const sheet of document.querySelectorAll('dialog')) sheet.addEventListener('close',() => platform.showBack(page !== 'home'));
 const library = createSeriesLibrary({
-  preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute
+  preferences,persist,episodeCard,cloneWatchLayout,applyTheme,renderCurrentRoute,navigateSite
 });
 
 platform.configure(() => {
   const sheet = document.querySelector('dialog[open]');
   if (sheet) sheet.close();
-  else location.hash = library.back(page) || (page === 'watch' ? 'catalog' : 'home');
+  else navigateSite(library.back(page) || (page === 'watch' ? '#series/mentalist/season/' + current.season : '#library'));
 },applyTheme,telegram => {
   if (!location.hash || location.hash.startsWith('#tgWebApp')) renderCurrentRoute();
   else platform.showBack(page !== 'home');
@@ -904,7 +922,24 @@ platform.configure(() => {
   });
 });
 document.querySelector('.skip').onclick = event => {event.preventDefault();$('content').focus()};
-window.addEventListener('hashchange',renderCurrentRoute);
+document.addEventListener('click',event => {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest('a[href]');
+  if (!link || link.target || link.hasAttribute('download')) return;
+  const href = link.getAttribute('href');
+  const url = new URL(siteHref(href),location.href);
+  if (href === '#content' || url.origin !== location.origin || !url.pathname.startsWith(siteBase)) return;
+  const isPage = href.startsWith('#') || url.pathname === siteBase || url.pathname.startsWith(siteBase + 'series/');
+  if (!isPage) return;
+  event.preventDefault();
+  if (link.closest('.season-tiles, .segments')) platform.tap();
+  navigateSite(href);
+});
+function browserRoute() {
+  if (location.href !== browserAddress) renderCurrentRoute();
+}
+window.addEventListener('hashchange',browserRoute);
+window.addEventListener('popstate',browserRoute);
 applyTheme();
 applyNewYear();
 renderSeriesRatings();
