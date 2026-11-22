@@ -290,8 +290,8 @@ a.rating-chip:hover{background:var(--tonal);color:var(--on-tonal)}
 .hero-facts{margin-top:9px}
 .catalog-facts{margin:-6px 0 16px}
 .season-rating-row{margin:0 0 12px}
-.rating-action{background:var(--primary);color:var(--on-primary);font-weight:750}
-.rating-action:hover{box-shadow:0 0 0 2px var(--primary)}
+.rating-action{background:var(--primary);color:var(--on-primary);font-weight:750;}
+.rating-action:hover{box-shadow:0 0 0 2px var(--primary); transition: box-shadow 0.25s ease-in-out, transform 0.25s ease, border-radius 1s ease;}
 .search{border-radius:var(--r-small);border:1px solid transparent;min-width:0}
 .search:focus-within{outline:2px solid var(--outline);outline-offset:2px}
 .search input:focus-visible{outline:none}
