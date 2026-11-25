@@ -125,11 +125,26 @@ footer{color:var(--muted);display:flex;flex-wrap:wrap;justify-content:space-betw
 @media(min-width:560px){
  .hero{grid-template-columns:minmax(0,1fr) minmax(135px,28%)}.hero-poster{grid-row:auto}.hero .poster{aspect-ratio:2/3;max-height:none}.search{flex-basis:240px}.episodes{grid-template-columns:repeat(auto-fill,minmax(185px,1fr))}.sheet{inset:0;margin:auto;width:min(550px,94vw);border-radius:var(--r-large);padding:24px}
 }
+
+@keyframes nav-scroll {
+    from {
+        background-color: rgba(35, 19, 19, 1);
+    }
+    to {
+        background-color: rgba(35, 19, 19, 0.65);
+    }
+}
+
 @media(min-width:900px){
  body{padding-bottom:0}
  .navigation{--nav-edge:4px;--nav-gap:6px;--nav-slot:calc((100% - 2 * var(--nav-edge) - 3 * var(--nav-gap)) / 4);--nav-index:0;
-  position:sticky;inset:var(--safe-top) auto auto;width:calc(min(100%, 1280px) - 2 * var(--space));margin:0 auto 12px;
-  padding:var(--nav-edge);gap:var(--nav-gap);border-radius:var(--r-medium);isolation:isolate}
+  position:sticky;inset:calc(var(--safe-top) + 8px) auto auto;width:calc(min(100%, 1280px) - 2 * var(--space));margin:0 auto 12px;
+  padding:var(--nav-edge);gap:var(--nav-gap);border-radius:var(--r-medium);isolation:isolate;
+  animation: nav-scroll linear both;
+  animation-timeline: scroll(root);
+  animation-range: 0px 100px;
+  backdrop-filter: blur(16px);
+}
  .navigation:has(a[data-local-route="catalog"][aria-current]){--nav-index:1}
  .navigation:has(a[data-local-route="watch"][aria-current]){--nav-index:2}
  .navigation:has(a[data-local-route="settings"][aria-current]){--nav-index:3}
