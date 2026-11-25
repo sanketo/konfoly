@@ -11,7 +11,7 @@ function playbackTime(value){const n=Math.max(0,Math.floor(Number(value)||0));re
 function bindPlaybackMemory(video,context,onStatus=()=>{},options={}){
  let ready=false,lastSave=0,hasPlayed=!video.paused,completed=false;
  function save(force=false){
-  if(!ready||!hasPlayed||!Number.isFinite(video.duration)||video.duration<=0||!Number.isFinite(video.currentTime))return;
+  if(!ready||!hasPlayed||video.readyState===0||!Number.isFinite(video.duration)||video.duration<=0||!Number.isFinite(video.currentTime))return;
   const credits=Math.min(60,video.duration*.05);
   const watchedAt=Math.min(context.combined?4800:2400,video.duration-credits);
   const justCompleted=!completed&&(video.ended||video.currentTime>=watchedAt);
@@ -34,7 +34,7 @@ function bindPlaybackMemory(video,context,onStatus=()=>{},options={}){
  window.addEventListener('pagehide',flush);document.addEventListener('visibilitychange',visibility);
  return ()=>{flush();video.removeEventListener('loadedmetadata',loaded);video.removeEventListener('timeupdate',tick);video.removeEventListener('play',played);for(const event of ['pause','seeked','ended'])video.removeEventListener(event,flush);window.removeEventListener('pagehide',flush);document.removeEventListener('visibilitychange',visibility)};
 }
-function bindPointerBoost(video,surface,onBoost=()=>{}) {
+function bindPointerBoost(video,surface,onBoost=()=>{},play=()=>video.play().catch(()=>{})) {
  let press=null,boosted=false,timer=null,previousRate=1,suppressClick=false,clickTimer=null;
  function restore(resume=false){
   clearTimeout(timer);
@@ -43,7 +43,7 @@ function bindPointerBoost(video,surface,onBoost=()=>{}) {
   press=null;
   boosted=false;
   onBoost(false);
-  if(keepPlaying&&video.paused)video.play().catch(()=>{});
+  if(keepPlaying&&video.paused)play();
  }
  function down(event){
   if(event.button!==0||event.isPrimary===false||press||video.ended)return;
@@ -63,7 +63,7 @@ function bindPointerBoost(video,surface,onBoost=()=>{}) {
    boosted=true;
    video.playbackRate=2;
    onBoost(true);
-   if(video.paused)video.play().catch(()=>{});
+   if(video.paused)play();
   },touch?280:220);
  }
  function move(event){

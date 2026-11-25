@@ -1,11 +1,11 @@
-function bindVideoKeys(video, target=document, onBoost=()=>{}) {
+function bindVideoKeys(video, target=document, onBoost=()=>{}, play=()=>video.play().catch(()=>{})) {
  let pressed=false,boosted=false,timer=null,previousRate=1;
  function block(e){e.preventDefault();e.stopImmediatePropagation()}
  function restore(resume=false){
   clearTimeout(timer);const shouldResume=resume&&boosted&&!video.ended;
   if(boosted)video.playbackRate=previousRate;
   pressed=false;boosted=false;onBoost(false);
-  if(shouldResume&&video.paused)video.play().catch(()=>{});
+  if(shouldResume&&video.paused)play();
  }
  function down(e){
   if(e.altKey||e.ctrlKey||e.metaKey||e.shiftKey)return;
@@ -22,9 +22,9 @@ function bindVideoKeys(video, target=document, onBoost=()=>{}) {
   if(e.target?.closest?.('button,a')&&!e.target.closest('.cinema-player'))return;
   block(e);if(pressed||e.repeat)return;
   pressed=true;previousRate=video.playbackRate;
-  timer=setTimeout(()=>{if(!pressed)return;boosted=true;video.playbackRate=2;onBoost(true);if(video.paused)video.play().catch(()=>{})},220);
+  timer=setTimeout(()=>{if(!pressed)return;boosted=true;video.playbackRate=2;onBoost(true);if(video.paused)play()},220);
  }
- function up(e){if(e.code!=='Space'||!pressed)return;block(e);const held=boosted;restore(true);if(!held){if(video.paused)video.play().catch(()=>{});else video.pause()}}
+ function up(e){if(e.code!=='Space'||!pressed)return;block(e);const held=boosted;restore(true);if(!held){if(video.paused)play();else video.pause()}}
  function keypress(e){if(e.code==='Space'&&pressed)block(e)}
  function blur(){restore()}
  target.addEventListener('keydown',down,{capture:true});target.addEventListener('keyup',up,{capture:true});target.addEventListener('keypress',keypress,{capture:true});window.addEventListener('blur',blur);

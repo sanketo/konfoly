@@ -415,6 +415,27 @@ function playbackError(message) {
 function mountVideo(url, label, resumeTime, source, metadata = '', recoveryAttempt = 0, combined = false) {
   const item = current;
   const video = make('video');
+  let lastPosition = resumeTime;
+  let hasMetadata = false;
+  let reconnectOnResume = false;
+
+  function rememberPosition() {
+    if (video.readyState > 0 && Number.isFinite(video.currentTime)) lastPosition = video.currentTime;
+  }
+  function reconnect() {
+    if (media !== video) return;
+    rememberPosition();
+    launch(source,lastPosition,1);
+  }
+  function play() {
+    if (reconnectOnResume || (source !== 'file' && hasMetadata && video.error)) reconnect();
+    else video.play().catch(() => {});
+  }
+  function updatePosition() {
+    rememberPosition();
+    if (!video.paused && !video.seeking && lastPosition > resumeTime + 1) recoveryAttempt = 0;
+  }
+
   media = video;
   video.playsInline = true;
   video.preload = 'metadata';
@@ -423,7 +444,7 @@ function mountVideo(url, label, resumeTime, source, metadata = '', recoveryAttem
   $('source-status').textContent = label;
   const ui = createCinemaPlayer(video,{
     title:'Сезон ' + item.season + ' · Серия ' + item.episode,
-    rate:preferences.rate,volume:preferences.volume,
+    rate:preferences.rate,volume:preferences.volume,play,
     onRate(value){preferences.rate=value;persist()},
     onVolume(value){preferences.volume=value;persist()}
   });
@@ -439,32 +460,56 @@ function mountVideo(url, label, resumeTime, source, metadata = '', recoveryAttem
         updateWatched();
       }
     });
-  const stopKeys = bindVideoKeys(video,document,active=>ui.setBoost(active));
+  const stopKeys = bindVideoKeys(video,document,ui.setBoost,play);
 
   function updateQuality() {
     const size = video.videoWidth > 0 ? video.videoWidth + ' × ' + video.videoHeight : '';
     $('quality-status').textContent = [size,metadata].filter(Boolean).join(' · ');
   }
-  video.addEventListener('loadedmetadata',updateQuality);
+  function loaded() {
+    hasMetadata = true;
+    rememberPosition();
+    updateQuality();
+  }
+  video.addEventListener('loadedmetadata',loaded);
   video.addEventListener('resize',updateQuality);
+  video.addEventListener('pause',rememberPosition);
+  video.addEventListener('seeked',rememberPosition);
+  video.addEventListener('timeupdate',updatePosition);
   const stopHealth = watchPlaybackHealth(video,(failure,code) => {
     if (media !== video) return;
-    const time = video.currentTime;
-    if (Number.isFinite(time) && time > 0) pendingPosition = time;
-    const canRecover = source === 'native' && recoveryAttempt === 0 &&
-      (failure === 'stall' || code === 2 || (code === 4 && (time > 0 || resumeTime > 0)));
-    if (canRecover) {
-      launch(source,pendingPosition,1);
+    const canRecover = source !== 'file' &&
+      (failure === 'stall' || code === 2 || hasMetadata || (source === 'native' && code === 4 && resumeTime > 0));
+    if (canRecover && hasMetadata && video.paused && !video.ended) {
+      rememberPosition();
+      reconnectOnResume = true;
+      $('source-status').textContent = 'Поток прервался на паузе. Чтобы восстановить его, продолжи просмотр.';
       return;
     }
+    if (canRecover && recoveryAttempt === 0) {
+      reconnect();
+      return;
+    }
+    rememberPosition();
+    pendingPosition = lastPosition;
     clearMedia();
     playbackError(failure === 'stall'
       ? 'Поток перестал отвечать. Можно повторить с места остановки или выбрать другой источник.'
       : 'Видео не загрузилось. Проверь сеть, формат или выбери другой источник.');
   });
-  releaseMedia = () => {stopHealth();stopMemory();stopKeys();ui.destroy()};
+  releaseMedia = () => {
+    stopHealth();
+    stopMemory();
+    stopKeys();
+    ui.destroy();
+    video.removeEventListener('loadedmetadata',loaded);
+    video.removeEventListener('resize',updateQuality);
+    video.removeEventListener('pause',rememberPosition);
+    video.removeEventListener('seeked',rememberPosition);
+    video.removeEventListener('timeupdate',updatePosition);
+  };
   video.src = url;
-  video.play().catch(() => {});
+  play();
 }
 function configuredSource() {
   return preferences.sources[key(current)] || preferences.template;
@@ -501,7 +546,10 @@ async function launch(id,time = 0,recoveryAttempt = 0) {
   const template = custom?.url || (id === 'alloha' ? preferences.alloha : null);
   const url = template ? mediaAddress(template,current.season,current.episode) : embedAddress(id,current.season,current.episode);
   if (!url) { playbackError('Нужен действительный HTTPS-адрес.'); return; }
-  if (custom?.kind === 'video') { mountVideo(url,'Свой источник',time,id); return; }
+  if (custom?.kind === 'video') {
+    mountVideo(url,'Свой источник',time,id,'',recoveryAttempt);
+    return;
+  }
   const frame = make('iframe');
   frame.title = 'Внешний видеоплеер';
   frame.allow = 'autoplay; fullscreen; picture-in-picture';

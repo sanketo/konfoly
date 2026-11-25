@@ -18,7 +18,8 @@ function createCinemaPlayer(video,options={}){
  q('.cinema-title').textContent=options.title||'Менталист';
  const seekPreview=q('.cinema-seek-preview');
  let hideTimer=null,seeking=false,normalRate=options.rate===2?1:(options.rate||1);const listeners=[];
- const pointerBoost=bindPointerBoost(video,video,setBoost);
+ const play=options.play||(()=>video.play().catch(()=>{}));
+ const pointerBoost=bindPointerBoost(video,video,setBoost,play);
  function on(el,event,handler){el.addEventListener(event,handler);listeners.push(()=>el.removeEventListener(event,handler))}
  function show(){shell.classList.remove('idle');clearTimeout(hideTimer);if(!video.paused)hideTimer=setTimeout(()=>{if(!shell.querySelector('.cinema-controls')?.contains(document.activeElement))shell.classList.add('idle')},2500)}
  function focusStage(){shell.focus({preventScroll:true});show()}
@@ -37,7 +38,7 @@ function createCinemaPlayer(video,options={}){
   seekPreview.style.setProperty('--seek-preview-x',offset+'px');
   seekPreview.hidden=false;
  }
- function toggle(){if(video.paused)video.play().catch(()=>{});else video.pause();focusStage()}
+ function toggle(){if(video.paused)play();else video.pause();focusStage()}
  function updateState(){shell.classList.toggle('paused',video.paused);q('.cinema-toggle').innerHTML=icon(video.paused?'play':'pause');q('.cinema-toggle').setAttribute('aria-label',video.paused?'Воспроизвести':'Пауза');if(!video.paused)shell.classList.remove('waiting');show()}
  function updateTime(){
   const duration=Number.isFinite(video.duration)?video.duration:0,time=video.currentTime||0;
@@ -76,6 +77,7 @@ function createCinemaPlayer(video,options={}){
  on(video,'loadedmetadata',()=>{q('.cinema-resolution').textContent=video.videoWidth&&video.videoHeight?video.videoWidth+' × '+video.videoHeight:'Размер недоступен';updateTime()});
  on(video,'volumechange',updateVolume);on(video,'ratechange',()=>{if(!shell.classList.contains('boosting'))speed.value=String(video.playbackRate);q('.cinema-quick').setAttribute('aria-pressed',video.playbackRate===2);q('.cinema-quick').classList.toggle('active',video.playbackRate===2)});
  on(video,'waiting',()=>shell.classList.add('waiting'));on(video,'playing',()=>shell.classList.remove('waiting'));on(video,'canplay',()=>shell.classList.remove('waiting'));
+ on(video,'error',()=>{shell.classList.remove('waiting');updateState()});
  on(shell,'pointermove',show);on(shell,'pointerdown',show);on(shell,'focusin',show);
  video.defaultPlaybackRate=options.rate||1;
  video.playbackRate=video.defaultPlaybackRate;
