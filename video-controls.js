@@ -10,7 +10,7 @@ function bindVideoKeys(video, target=document, onBoost=()=>{}, play=()=>video.pl
  function down(e){
   if(e.altKey||e.ctrlKey||e.metaKey||e.shiftKey)return;
   if(['ArrowLeft','ArrowRight'].includes(e.code)){
-   if(e.target?.closest?.('input,textarea,select,button,a,[contenteditable]:not([contenteditable=false]),dialog'))return;
+   if(e.target?.closest?.('input,textarea,select,button,a,summary,[contenteditable]:not([contenteditable=false]),dialog'))return;
    if(!Number.isFinite(video.duration)||video.duration<=0)return;
    block(e);
    const offset=e.code==='ArrowLeft'?-10:10;
@@ -18,7 +18,7 @@ function bindVideoKeys(video, target=document, onBoost=()=>{}, play=()=>video.pl
    return;
   }
   if(e.code!=='Space')return;
-  if(e.target?.closest?.('input,textarea,select,[contenteditable="true"],dialog'))return;
+  if(e.target?.closest?.('input,textarea,select,.cinema-speed,[contenteditable="true"],dialog'))return;
   if(e.target?.closest?.('button,a')&&!e.target.closest('.cinema-player'))return;
   block(e);if(pressed||e.repeat)return;
   pressed=true;previousRate=video.playbackRate;

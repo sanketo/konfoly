@@ -1,4 +1,4 @@
-@import url("player.css?v=21");
+@import url("player.css?v=22");
 :root {
  color-scheme:dark;
  --surface:#100606; --container:#1e0f0f; --high:#331d1d; --text:#f7ebeb; --muted:#d1bbba;
@@ -127,12 +127,8 @@ footer{color:var(--muted);display:flex;flex-wrap:wrap;justify-content:space-betw
 }
 
 @keyframes nav-scroll {
-    from {
-        background-color: rgba(35, 19, 19, 1);
-    }
-    to {
-        background-color: rgba(35, 19, 19, 0.65);
-    }
+ from{background-color:var(--container)}
+ to{background-color:color-mix(in srgb,var(--container) 78%,transparent)}
 }
 
 @media(min-width:900px){
@@ -151,7 +147,7 @@ footer{color:var(--muted);display:flex;flex-wrap:wrap;justify-content:space-betw
  .navigation:has(a[aria-current])::before{content:"";position:absolute;z-index:-1;inset-block:var(--nav-edge);inset-inline-start:var(--nav-edge);width:var(--nav-slot);border-radius:calc(var(--r-medium) - var(--nav-edge));background:var(--tonal);transform:translateX(calc(var(--nav-index) * (100% + var(--nav-gap))));transition:transform .4s cubic-bezier(.22,.9,.35,1)}
  .navigation a{flex:1 1 0;display:flex;align-items:center;justify-content:center;padding:0 16px;gap:8px;min-height:50px;border-radius:calc(var(--r-medium) - var(--nav-edge));font-size:.88rem;transition:color .2s ease}
  .navigation a[aria-current] span{animation:none}
- .navigation a span{width:28px;background:transparent}
+ .navigation a span{width:28px;background:transparent;color:inherit}
  .navigation a[aria-current]{color:var(--on-tonal)}
  .navigation a[aria-current] span{background:transparent;color:inherit}
  .hero{min-height:390px}.settings-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.episodes{gap:16px}
@@ -164,8 +160,6 @@ footer{color:var(--muted);display:flex;flex-wrap:wrap;justify-content:space-betw
 
 .navigation svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .navigation a[data-local-route="watch"] svg{fill:currentColor;stroke:none}
-.navigation svg circle{fill:var(--container)}
-.navigation a[aria-current] svg circle{fill:var(--primary)}
 .settings-card{grid-template-rows:auto auto;align-content:start;align-items:start;min-width:0;padding:20px}
 .settings-card label{width:100%;min-width:0}
 .importance-button.unconfirmed,.importance-button.regular{background:transparent;color:var(--muted)}
