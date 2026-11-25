@@ -52,7 +52,7 @@ function createCinemaPlayer(video,options={}){
  shell.append(overlay);const stopAmbient=bindVideoAmbient(video,originalParent.parentElement?.querySelector('.video-ambient'));
  const q=s=>overlay.querySelector(s),seek=q('.cinema-seek'),clock=q('.cinema-clock'),speed=q('.cinema-speed');
  const speedTrigger=q('.cinema-speed summary'),speedLabel=speedTrigger.querySelector('span');
- const speedButtons=[...speed.querySelectorAll('[data-rate]')],quick=q('.cinema-quick');
+ const speedList=q('.cinema-speed-options'),speedButtons=[...speedList.querySelectorAll('[data-rate]')],quick=q('.cinema-quick');
  q('.cinema-title').textContent=options.title||'Менталист';
  const seekPreview=q('.cinema-seek-preview');
  let hideTimer=null,seeking=false,normalRate=options.rate===2?1:(options.rate||1);const listeners=[];
@@ -101,6 +101,12 @@ function createCinemaPlayer(video,options={}){
   updateRate();
   options.onRate?.(rate);
  }
+ function revealRate(button){
+  const top=button.offsetTop-4;
+  const bottom=button.offsetTop+button.offsetHeight+4;
+  if(top<speedList.scrollTop)speedList.scrollTop=top;
+  else if(bottom>speedList.scrollTop+speedList.clientHeight)speedList.scrollTop=bottom-speedList.clientHeight;
+ }
  on(q('.cinema-toggle'),'click',toggle);on(q('.cinema-center'),'click',toggle);on(video,'click',()=>{if(pointerBoost.consumeClick())return;if(shell.classList.contains('idle')){focusStage();return}toggle()});
  on(video,'dblclick',()=>q('.cinema-full').click());
  on(q('.cinema-back'),'click',()=>{video.currentTime=Math.max(0,video.currentTime-10);focusStage()});
@@ -114,7 +120,13 @@ function createCinemaPlayer(video,options={}){
   speed.open=false;
   speedTrigger.focus({preventScroll:true});
  });
- on(speed,'toggle',show);
+ on(speed,'toggle',()=>{
+  if(speed.open){
+   const selected=speedList.querySelector('[aria-pressed="true"]');
+   if(selected)revealRate(selected);
+  }
+  show();
+ });
  on(document,'focusin',event=>{if(speed.open&&!speed.contains(event.target))speed.open=false});
  on(document,'pointerdown',event=>{if(speed.open&&!speed.contains(event.target))speed.open=false});
  on(speed,'keydown',event=>{
@@ -128,7 +140,9 @@ function createCinemaPlayer(video,options={}){
    const index=speedButtons.indexOf(document.activeElement);
    const next=index<0?playbackRates.indexOf(video.playbackRate):index+(event.key==='ArrowDown'?1:-1);
    speed.open=true;
-   speedButtons[(next+speedButtons.length)%speedButtons.length].focus({preventScroll:true});
+   const button=speedButtons[(next+speedButtons.length)%speedButtons.length];
+   button.focus({preventScroll:true});
+   revealRate(button);
   }
  });
  on(quick,'click',()=>{setRate(video.playbackRate===2?normalRate:2);focusStage()});
